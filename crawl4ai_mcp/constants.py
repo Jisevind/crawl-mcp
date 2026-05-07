@@ -2,19 +2,48 @@
 
 This module centralizes all constants used throughout the codebase to ensure
 consistency and make configuration changes easier.
+
+Environment variable overrides (set these to change defaults at runtime):
+  CRAWL4AI_MAX_RESPONSE_TOKENS       - max tokens in MCP response (default: 100000)
+  CRAWL4AI_MAX_CONTENT_TOKENS_DEFAULT - auto-summarization threshold (default: 15000)
+  CRAWL4AI_FALLBACK_MIN_CONTENT_LENGTH - min content to consider meaningful (default: 200)
+  CRAWL4AI_LLM_API_TIMEOUT           - LLM API timeout in seconds (default: 120)
+  CRAWL4AI_MAX_CONTENT_FOR_LLM       - max chars sent to LLM (default: 50000)
+  CRAWL4AI_MAX_FILE_SIZE_MB          - max file size in MB (default: 100)
+  CRAWL4AI_MAX_BATCH_YOUTUBE_URLS    - max YouTube URLs per batch (default: 3)
+  CRAWL4AI_CACHE_TTL_SECONDS         - cache TTL in seconds, 0=infinite (default: 3600)
+  CRAWL4AI_DEFAULT_LLM_PROVIDER      - default LLM provider (default: openai)
+  CRAWL4AI_DEFAULT_LLM_MODEL         - default LLM model (default: gpt-4o)
+  CRAWL4AI_SUMMARIZATION_TEMPERATURE - summarization temperature (default: 0.3)
 """
 
+import os
 from typing import Dict, Any
+
+
+def _env_int(name: str, default: int) -> int:
+    val = os.getenv(name, "")
+    return int(val) if val else default
+
+
+def _env_float(name: str, default: float) -> float:
+    val = os.getenv(name, "")
+    return float(val) if val else default
+
+
+def _env_str(name: str, default: str) -> str:
+    return os.getenv(name, default)
+
 
 # =============================================================================
 # Token Limits
 # =============================================================================
 
 # Maximum tokens for MCP response to prevent Claude Code errors
-MAX_RESPONSE_TOKENS = 100000
+MAX_RESPONSE_TOKENS = _env_int("CRAWL4AI_MAX_RESPONSE_TOKENS", 100000)
 
 # Default maximum content tokens before auto-summarization
-MAX_CONTENT_TOKENS_DEFAULT = 15000
+MAX_CONTENT_TOKENS_DEFAULT = _env_int("CRAWL4AI_MAX_CONTENT_TOKENS_DEFAULT", 15000)
 
 # Token estimation ratios (characters per token)
 TOKEN_ESTIMATE_CHARS_PER_TOKEN_EN = 4  # English: ~4 chars per token
@@ -50,7 +79,7 @@ SUMMARY_LENGTH_CONFIGS: Dict[str, Dict[str, Any]] = {
 # =============================================================================
 
 # Minimum content length to consider meaningful
-FALLBACK_MIN_CONTENT_LENGTH = 200
+FALLBACK_MIN_CONTENT_LENGTH = _env_int("CRAWL4AI_FALLBACK_MIN_CONTENT_LENGTH", 200)
 
 # Block page indicators (lowercase patterns)
 BLOCK_INDICATORS = [
@@ -105,27 +134,27 @@ ESSENTIAL_FIELDS = [
 # LLM Provider Defaults
 # =============================================================================
 
-DEFAULT_LLM_PROVIDER = "openai"
-DEFAULT_LLM_MODEL = "gpt-4o"
+DEFAULT_LLM_PROVIDER = _env_str("CRAWL4AI_DEFAULT_LLM_PROVIDER", "openai")
+DEFAULT_LLM_MODEL = _env_str("CRAWL4AI_DEFAULT_LLM_MODEL", "gpt-4o")
 
 # Supported LLM providers
 SUPPORTED_LLM_PROVIDERS = ["openai", "anthropic", "ollama", "aoai"]
 
 # Default temperature for summarization
-SUMMARIZATION_TEMPERATURE = 0.3
+SUMMARIZATION_TEMPERATURE = _env_float("CRAWL4AI_SUMMARIZATION_TEMPERATURE", 0.3)
 
 # Default timeout for LLM API calls (seconds)
-LLM_API_TIMEOUT = 120
+LLM_API_TIMEOUT = _env_int("CRAWL4AI_LLM_API_TIMEOUT", 120)
 
 # Content truncation limits for LLM prompts
-MAX_CONTENT_FOR_LLM = 50000  # Maximum characters to send to LLM
+MAX_CONTENT_FOR_LLM = _env_int("CRAWL4AI_MAX_CONTENT_FOR_LLM", 50000)
 
 # =============================================================================
 # File Processing Constants
 # =============================================================================
 
 # Maximum file size in MB
-MAX_FILE_SIZE_MB = 100
+MAX_FILE_SIZE_MB = _env_int("CRAWL4AI_MAX_FILE_SIZE_MB", 100)
 
 # Supported file extensions by category
 SUPPORTED_FILE_EXTENSIONS = {
@@ -144,7 +173,7 @@ SUPPORTED_FILE_EXTENSIONS = {
 DEFAULT_YOUTUBE_LANGUAGES = ["ja", "en"]
 
 # Maximum URLs for batch transcript extraction
-MAX_BATCH_YOUTUBE_URLS = 3
+MAX_BATCH_YOUTUBE_URLS = _env_int("CRAWL4AI_MAX_BATCH_YOUTUBE_URLS", 3)
 
 # =============================================================================
 # Content Cache Policy Configuration
@@ -152,4 +181,4 @@ MAX_BATCH_YOUTUBE_URLS = 3
 
 # Default TTL for content freshness in seconds (1 hour)
 # Set CRAWL4AI_CACHE_TTL_SECONDS=0 to disable TTL (infinite cache)
-DEFAULT_CRAWL_CACHE_TTL_SECONDS = 3600
+DEFAULT_CRAWL_CACHE_TTL_SECONDS = _env_int("CRAWL4AI_CACHE_TTL_SECONDS", 3600)
