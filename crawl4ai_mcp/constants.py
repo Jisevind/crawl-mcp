@@ -23,12 +23,22 @@ from typing import Dict, Any
 
 def _env_int(name: str, default: int) -> int:
     val = os.getenv(name, "")
-    return int(val) if val else default
+    if not val:
+        return default
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return default
 
 
 def _env_float(name: str, default: float) -> float:
     val = os.getenv(name, "")
-    return float(val) if val else default
+    if not val:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
 
 
 def _env_str(name: str, default: str) -> str:
