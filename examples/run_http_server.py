@@ -38,20 +38,12 @@ async def run_http_server(host: str = "127.0.0.1", port: int = 8000, log_level: 
     logger.info(f"🌐 エンドポイント: http://{host}:{port}")
     
     try:
-        # HTTPプロトコルでサーバーを起動（新しいAPI使用）
-        try:
-            await mcp.run_http_async(
-                host=host,
-                port=port,
-                log_level=log_level.lower()
-            )
-        except AttributeError:
-            # フォールバック：古いAPIを使用
-            await mcp.run_streamable_http_async(
-                host=host,
-                port=port,
-                log_level=log_level.lower()
-            )
+        # Streamable HTTP transport (FastMCP 3.0 API)
+        await mcp.run(
+            transport="http",
+            host=host,
+            port=port,
+        )
     except KeyboardInterrupt:
         logger.info("📴 サーバーを停止しています...")
     except Exception as e:

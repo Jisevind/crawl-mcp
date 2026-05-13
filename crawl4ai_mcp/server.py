@@ -1,8 +1,7 @@
 """
-Crawl4AI MCP Server - FastMCP 2.0 Version
+Crawl4AI MCP Server - FastMCP 3.0 Version
 
-Uses FastMCP 2.0.0 which doesn't have banner output issues.
-Clean STDIO transport compatible for perfect MCP communication.
+Uses FastMCP 3.0 with clean STDIO transport for MCP communication.
 """
 
 import os
@@ -10,9 +9,8 @@ import sys
 import warnings
 
 # Set environment variables before any imports
-os.environ["FASTMCP_QUIET"] = "true"
-os.environ["FASTMCP_NO_BANNER"] = "true"
-os.environ["FASTMCP_SILENT"] = "true"
+os.environ["FASTMCP_SHOW_SERVER_BANNER"] = "false"
+os.environ["FASTMCP_LOG_ENABLED"] = "false"
 os.environ["PYTHONWARNINGS"] = "ignore"
 os.environ["TERM"] = "dumb"
 os.environ["SHELL"] = "/bin/sh"
@@ -23,7 +21,7 @@ warnings.simplefilter("ignore")
 import logging
 logging.disable(logging.CRITICAL)
 
-# Import FastMCP 2.0 - no banner output!
+# Import FastMCP 3.0
 from fastmcp import FastMCP
 
 from .server_tools import register_all_tools
@@ -106,11 +104,11 @@ register_all_tools(mcp, _get_modules)
 
 
 def main():
-    """Clean main entry point - FastMCP 2.0 with no banner issues"""
+    """Clean main entry point - FastMCP 3.0"""
     if len(sys.argv) > 1 and sys.argv[1] == "--help":
-        print("Crawl4AI MCP Server - FastMCP 2.0 Version")
+        print("Crawl4AI MCP Server - FastMCP 3.0 Version")
         print("Usage: python -m crawl4ai_mcp.server [--transport TRANSPORT]")
-        print("Transports: stdio (default), streamable-http, sse")
+        print("Transports: stdio (default), http, sse (deprecated)")
         return
 
     # Parse args
@@ -133,12 +131,12 @@ def main():
         else:
             i += 1
 
-    # Run server - clean FastMCP 2.0 execution
+    # Run server - clean FastMCP 3.0 execution
     try:
         if transport == "stdio":
             mcp.run()
-        elif transport in ("streamable-http", "http"):
-            mcp.run(transport="streamable-http", host=host, port=port)
+        elif transport in ("http", "streamable-http"):
+            mcp.run(transport="http", host=host, port=port)
         elif transport == "sse":
             mcp.run(transport="sse", host=host, port=port)
         else:
