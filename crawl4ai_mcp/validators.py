@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Optional, Dict, List
 from urllib.parse import urlparse, unquote
 
+from .constants import MAX_CRAWL_TIMEOUT_SECONDS
+
 
 def is_file_uri(url: str) -> bool:
     return url.strip().lower().startswith('file://')
@@ -92,7 +94,7 @@ def validate_url(url: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def validate_timeout(timeout: Any, max_timeout: int = 300) -> Optional[Dict[str, Any]]:
+def validate_timeout(timeout: Any, max_timeout: int = MAX_CRAWL_TIMEOUT_SECONDS) -> Optional[Dict[str, Any]]:
     """
     Validate a timeout value and return error dict if invalid, None if valid.
 

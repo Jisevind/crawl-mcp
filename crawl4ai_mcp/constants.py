@@ -15,6 +15,8 @@ Environment variable overrides (set these to change defaults at runtime):
   CRAWL4AI_DEFAULT_LLM_PROVIDER      - default LLM provider (default: openai)
   CRAWL4AI_DEFAULT_LLM_MODEL         - default LLM model (default: gpt-4o)
   CRAWL4AI_SUMMARIZATION_TEMPERATURE - summarization temperature (default: 0.3)
+  CRAWL4AI_MAX_CRAWL_TIMEOUT          - max crawl timeout in seconds (default: 300)
+  CRAWL4AI_MAX_LLM_RESPONSE_TOKENS    - max tokens in LLM response (default: 4000)
 """
 
 import os
@@ -156,6 +158,9 @@ SUMMARIZATION_TEMPERATURE = _env_float("CRAWL4AI_SUMMARIZATION_TEMPERATURE", 0.3
 # Default timeout for LLM API calls (seconds)
 LLM_API_TIMEOUT = _env_int("CRAWL4AI_LLM_API_TIMEOUT", 120)
 
+# Maximum tokens in LLM response (cap for max_tokens in API calls)
+MAX_LLM_RESPONSE_TOKENS = _env_int("CRAWL4AI_MAX_LLM_RESPONSE_TOKENS", 4000)
+
 # Content truncation limits for LLM prompts
 MAX_CONTENT_FOR_LLM = _env_int("CRAWL4AI_MAX_CONTENT_FOR_LLM", 50000)
 
@@ -165,6 +170,9 @@ MAX_CONTENT_FOR_LLM = _env_int("CRAWL4AI_MAX_CONTENT_FOR_LLM", 50000)
 
 # Maximum file size in MB
 MAX_FILE_SIZE_MB = _env_int("CRAWL4AI_MAX_FILE_SIZE_MB", 100)
+
+# Maximum crawl timeout in seconds
+MAX_CRAWL_TIMEOUT_SECONDS = _env_int("CRAWL4AI_MAX_CRAWL_TIMEOUT", 300)
 
 # Supported file extensions by category
 SUPPORTED_FILE_EXTENSIONS = {

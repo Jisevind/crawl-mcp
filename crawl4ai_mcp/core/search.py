@@ -78,7 +78,7 @@ async def search_google(
                 "suggestion": result.get('suggestion')
             }
 
-    except Exception as e:
+    except (ValueError, RuntimeError, OSError) as e:
         return {
             "success": False,
             "query": request.get('query', ''),
@@ -251,7 +251,7 @@ async def batch_search_google(
 
         return response
 
-    except Exception as e:
+    except (ValueError, RuntimeError, OSError) as e:
         return {
             "success": False,
             "total_queries": len(request.get('queries', [])),
@@ -383,7 +383,7 @@ async def get_search_genres() -> Dict[str, Any]:
             ]
         }
 
-    except Exception as e:
+    except (ValueError, RuntimeError, OSError) as e:
         return {
             "success": False,
             "error": f"Failed to get search genres: {str(e)}"

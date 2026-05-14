@@ -34,12 +34,26 @@ def resolve_api_key(
     provider: str,
     explicit_key: Optional[str] = None,
 ) -> Optional[str]:
-    """Resolve an API key for a provider from an explicit key or environment.
+    """Resolve an API key for a provider.
+
+    Resolution order:
+    1. Explicitly provided key
+    2. ConfigManager (supports claude_desktop_config.json keys)
+    3. Environment variable (OPENAI_API_KEY / ANTHROPIC_API_KEY / AZURE_OPENAI_API_KEY)
 
     Returns ``None`` if no key is configured.
     """
     if explicit_key:
         return explicit_key
+
+    try:
+        from ..config import get_config_manager
+        key = get_config_manager().get_api_key(provider)
+        if key:
+            return key
+    except Exception:
+        pass
+
     env_map = {
         "openai": "OPENAI_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",

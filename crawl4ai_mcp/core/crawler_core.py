@@ -390,13 +390,18 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
 
         return response
 
-    except Exception as e:
+    except TimeoutError as e:
+        import sys
+        error_message = f"Crawling timeout: {str(e)}"
+        return CrawlResponse(
+            success=False, url=request.url, error=error_message,
+            extracted_data={"error_type": "timeout"}
+        )
+    except OSError as e:
         import sys
         error_message = f"Crawling error: {str(e)}"
-
         if "playwright" in str(e).lower() or "browser" in str(e).lower() or "executable doesn't exist" in str(e).lower():
             is_uvx_env = 'UV_PROJECT_ENVIRONMENT' in os.environ or 'UVX' in str(sys.executable)
-
             if is_uvx_env:
                 error_message += "\n\nUVX Environment Browser Setup Required:\n" \
                     f"1. Run system diagnostics: get_system_diagnostics()\n" \
@@ -413,18 +418,15 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     f"   playwright install chromium  # Full compatibility\n" \
                     f"2. For system dependencies: sudo apt-get install libnss3 libnspr4 libasound2\n" \
                     f"3. Run diagnostics: get_system_diagnostics()"
-
         return CrawlResponse(
-            success=False,
-            url=request.url,
-            error=error_message,
+            success=False, url=request.url, error=error_message,
             extracted_data={
-                'error_type': 'browser_setup_required',
-                'uvx_environment': 'UV_PROJECT_ENVIRONMENT' in os.environ or 'UVX' in str(sys.executable),
-                'diagnostic_tool': 'get_system_diagnostics',
-                'installation_commands': [
-                    'playwright install webkit',
-                    'playwright install chromium'
+                "error_type": "os_error",
+                "uvx_environment": 'UV_PROJECT_ENVIRONMENT' in os.environ or 'UVX' in str(sys.executable),
+                "diagnostic_tool": "get_system_diagnostics",
+                "installation_commands": [
+                    "playwright install webkit",
+                    "playwright install chromium"
                 ]
             }
         )

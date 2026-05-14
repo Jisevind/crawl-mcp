@@ -16,8 +16,9 @@ from ..constants import (
     SUMMARIZATION_TEMPERATURE,
     LLM_API_TIMEOUT,
     MAX_CONTENT_FOR_LLM,
+    MAX_LLM_RESPONSE_TOKENS,
 )
-from .llm_providers import clean_json_response
+from .llm_providers import clean_json_response, resolve_api_key, resolve_base_url
 
 
 def get_llm_config_safe(
@@ -253,7 +254,7 @@ Content to summarize:
         """Call OpenAI API."""
         import openai
 
-        api_key = self.api_key or os.environ.get('OPENAI_API_KEY')
+        api_key = resolve_api_key("openai", self.api_key)
         if not api_key:
             raise ValueError("OpenAI API key not found")
 
@@ -269,7 +270,7 @@ Content to summarize:
                 {"role": "user", "content": prompt}
             ],
             temperature=self.temperature,
-            max_tokens=min(4000, config['target_tokens'] * 2)
+            max_tokens=min(MAX_LLM_RESPONSE_TOKENS, config['target_tokens'] * 2)
         )
 
         return response.choices[0].message.content
@@ -283,7 +284,7 @@ Content to summarize:
         """Call Anthropic API."""
         import anthropic
 
-        api_key = self.api_key or os.environ.get('ANTHROPIC_API_KEY')
+        api_key = resolve_api_key("anthropic", self.api_key)
         if not api_key:
             raise ValueError("Anthropic API key not found")
 
@@ -291,7 +292,7 @@ Content to summarize:
 
         response = await client.messages.create(
             model=model,
-            max_tokens=min(4000, config['target_tokens'] * 2),
+            max_tokens=min(MAX_LLM_RESPONSE_TOKENS, config['target_tokens'] * 2),
             temperature=self.temperature,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -338,11 +339,9 @@ Content to summarize:
         """Call Azure OpenAI API."""
         import openai
 
-        api_key = self.api_key or os.environ.get('AZURE_OPENAI_API_KEY')
-        # Use explicit base_url if provided, otherwise fall back to environment variable
-        # Note: self.base_url is None by default, so environment variable will be used
-        api_base = self.base_url if self.base_url else os.environ.get('AZURE_OPENAI_ENDPOINT')
-        api_version = os.environ.get('AZURE_OPENAI_API_VERSION', '2024-02-15-preview')
+        api_key = resolve_api_key("aoai", self.api_key)
+        api_base = resolve_base_url("aoai", self.base_url)
+        api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
 
         if not api_key:
             raise ValueError("Azure OpenAI API key not found. Set AZURE_OPENAI_API_KEY environment variable.")
@@ -365,7 +364,7 @@ Content to summarize:
                 {"role": "user", "content": prompt}
             ],
             temperature=self.temperature,
-            max_tokens=min(4000, config['target_tokens'] * 2)
+            max_tokens=min(MAX_LLM_RESPONSE_TOKENS, config['target_tokens'] * 2)
         )
 
         return response.choices[0].message.content
