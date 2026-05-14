@@ -50,26 +50,31 @@ class TestValidateOutputPath:
         err = validate_output_path("relative/path.md")
         assert err and err["error_code"] == "output_path_not_absolute"
 
-    def test_absolute_ok(self, tmp_path):
+    def test_absolute_ok(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CRAWL4AI_OUTPUT_BASE_DIR", str(tmp_path))
         assert validate_output_path(str(tmp_path / "out.md")) is None
 
-    def test_tilde_expanded(self):
+    def test_tilde_expanded(self, monkeypatch):
         # ~/x.md → absolute after expansion → OK.
+        monkeypatch.setenv("CRAWL4AI_OUTPUT_BASE_DIR", str(Path.home()))
         assert validate_output_path("~/_file_persistence_nonexistent.md") is None
 
-    def test_existing_file_rejected_when_overwrite_false(self, tmp_path):
+    def test_existing_file_rejected_when_overwrite_false(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CRAWL4AI_OUTPUT_BASE_DIR", str(tmp_path))
         p = tmp_path / "existing.md"
         p.write_text("hi")
         err = validate_output_path(str(p), overwrite=False)
         assert err and err["error_code"] == "output_path_exists"
 
-    def test_existing_file_ok_when_overwrite_true(self, tmp_path):
+    def test_existing_file_ok_when_overwrite_true(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CRAWL4AI_OUTPUT_BASE_DIR", str(tmp_path))
         p = tmp_path / "existing.md"
         p.write_text("hi")
         assert validate_output_path(str(p), overwrite=True) is None
 
-    def test_existing_directory_not_rejected(self, tmp_path):
+    def test_existing_directory_not_rejected(self, tmp_path, monkeypatch):
         # Batch tools use directories; must not trip on dir existence.
+        monkeypatch.setenv("CRAWL4AI_OUTPUT_BASE_DIR", str(tmp_path))
         assert validate_output_path(str(tmp_path), overwrite=False) is None
 
 

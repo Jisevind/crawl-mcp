@@ -92,9 +92,8 @@ class TestFallbackChain:
                 url="http://blocked.example.com", timeout=15)
 
             assert result.success is True
-            # crawl_url should have been called for stage 2 (browser)
-            # at least once beyond the static fast path
-            assert mock_crawl.call_count >= 2
+            # crawl_url should have been called for the first browser stage.
+            assert mock_crawl.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_block_page_detection_skips_strategy(self):
@@ -302,7 +301,12 @@ class TestLLMClients:
 
         client = LLMClient(provider="ollama", model="llama3")
 
-        mock_session = AsyncMock()
+        mock_session_cm = MagicMock()
+        mock_session_cm.__aenter__ = AsyncMock()
+        mock_session_cm.__aexit__ = AsyncMock(return_value=None)
+        mock_session = MagicMock()
+        mock_session_cm.__aenter__.return_value = mock_session
+        mock_response_cm = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value={"response": json.dumps({
@@ -311,9 +315,11 @@ class TestLLMClients:
             "main_insights": [],
             "content_type": "document"
         })})
-        mock_session.__aenter__.return_value.post.return_value.__aenter__.return_value = mock_response
+        mock_response_cm.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response_cm.__aexit__ = AsyncMock(return_value=None)
+        mock_session.post.return_value = mock_response_cm
 
-        with patch("aiohttp.ClientSession", return_value=mock_session):
+        with patch("aiohttp.ClientSession", return_value=mock_session_cm):
             result = await client.summarize(
                 content="Test content " * 30,
                 title="Ollama Test",

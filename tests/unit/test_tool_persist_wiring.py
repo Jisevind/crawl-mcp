@@ -27,6 +27,12 @@ from crawl4ai_mcp.server_tools.search_tools import register_search_tools
 from crawl4ai_mcp.server_tools.youtube_tools import register_youtube_tools
 
 
+@pytest.fixture(autouse=True)
+def _allow_tmp_output_base(tmp_path, monkeypatch):
+    """Persistence wiring tests intentionally write under each test tmp dir."""
+    monkeypatch.setenv("CRAWL4AI_OUTPUT_BASE_DIR", str(tmp_path))
+
+
 # ---------------------------------------------------------------------------
 # Fake MCP registry
 # ---------------------------------------------------------------------------
