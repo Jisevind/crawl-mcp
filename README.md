@@ -60,15 +60,18 @@ uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp
 git clone https://github.com/walksoda/crawl-mcp
 cd crawl-mcp
 
-# Build and run with Docker Compose (STDIO mode)
-docker-compose up --build
+# Build the image for STDIO mode
+docker compose --profile stdio build crawl4ai-mcp
 
-# Or build and run HTTP mode on port 8000
-docker-compose --profile http up --build crawl4ai-mcp-http
+# Test the STDIO container interactively
+docker compose --profile stdio run --rm -T crawl4ai-mcp
+
+# Or build and run HTTP mode on host port 8001
+docker compose up --build crawl4ai-mcp-http
 
 # Or build manually
 docker build -t crawl4ai-mcp .
-docker run -it crawl4ai-mcp
+docker run --rm -i --no-healthcheck crawl4ai-mcp
 ```
 
 **Docker Features:**
@@ -109,6 +112,30 @@ Add to your `claude_desktop_config.json`:
     "crawl-mcp": {
       "transport": "http",
       "baseUrl": "http://localhost:8000"
+    }
+  }
+}
+```
+
+**Docker STDIO Mode:**
+Build the image first with `docker compose --profile stdio build crawl4ai-mcp`, then add:
+
+```json
+{
+  "mcpServers": {
+    "crawl-mcp": {
+      "transport": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "--no-healthcheck",
+        "crawl4ai-mcp:latest"
+      ],
+      "env": {
+        "CRAWL4AI_LANG": "en"
+      }
     }
   }
 }

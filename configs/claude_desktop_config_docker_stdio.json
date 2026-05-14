@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "crawl4ai-docker-stdio": {
+      "transport": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "--no-healthcheck",
+        "crawl4ai-mcp:latest"
+      ],
+      "env": {
+        "CRAWL4AI_LANG": "en"
+      }
+    }
+  }
+}

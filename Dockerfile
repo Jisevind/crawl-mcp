@@ -85,10 +85,6 @@ ENV PYTHONUNBUFFERED=1
 ENV CRAWL4AI_BROWSER_TYPE=chromium
 ENV CRAWL4AI_HEADLESS=true
 
-# Health check for HTTP mode (30s intervals, 10s timeout, 3 retries)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
-
 # Expose port for HTTP mode (optional)
 EXPOSE 8000
 
