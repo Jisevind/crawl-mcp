@@ -53,6 +53,7 @@ _ZIP_MAX_FILES = int(os.getenv("CRAWL4AI_ZIP_MAX_FILES", "25"))
 _ZIP_MAX_ENTRY_MB = int(os.getenv("CRAWL4AI_ZIP_MAX_ENTRY_MB", "25"))
 _ZIP_MAX_TOTAL_MB = int(os.getenv("CRAWL4AI_ZIP_MAX_TOTAL_MB", "100"))
 _ZIP_MAX_COMPRESSION_RATIO = float(os.getenv("CRAWL4AI_ZIP_MAX_COMPRESSION_RATIO", "100"))
+_FILE_PROCESS_TIMEOUT_SECONDS = float(os.getenv("CRAWL4AI_FILE_PROCESS_TIMEOUT_SECONDS", "120"))
 
 
 class FileProcessor:
@@ -108,7 +109,7 @@ class FileProcessor:
             return file_path_or_url.strip()
         return None
 
-    async def _read_local_file(self, file_path: str, max_size_mb: int = 100) -> tuple:
+    def _read_local_file_sync(self, file_path: str, max_size_mb: int = 100) -> tuple:
         path = Path(file_path).resolve()
         path_error = validate_local_file_path(str(path))
         if path_error:
@@ -128,6 +129,40 @@ class FileProcessor:
             raise ValueError(f"File too large: {size_mb:.1f}MB (max: {max_size_mb}MB)")
         content = path.read_bytes()
         return content, None
+
+    async def _read_local_file(self, file_path: str, max_size_mb: int = 100) -> tuple:
+        return await asyncio.to_thread(self._read_local_file_sync, file_path, max_size_mb)
+
+    def _download_http_file_sync(self, url: str, max_size_mb: int = 100) -> tuple:
+        try:
+            with requests.get(url, stream=True, timeout=30) as response:
+                response.raise_for_status()
+
+                # Get Content-Type header
+                content_type_header = response.headers.get('content-type', '')
+                content_type = content_type_header.split(';')[0].strip().lower() if content_type_header else None
+
+                # Check content length
+                content_length = response.headers.get('content-length')
+                if content_length:
+                    size_mb = int(content_length) / (1024 * 1024)
+                    if size_mb > max_size_mb:
+                        raise ValueError(f"File too large: {size_mb:.1f}MB (max: {max_size_mb}MB)")
+
+                # Download with size limit
+                content = bytearray()
+                max_bytes = max_size_mb * 1024 * 1024
+
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        content.extend(chunk)
+                        if len(content) > max_bytes:
+                            raise ValueError(f"File too large: exceeds {max_size_mb}MB limit")
+
+                return bytes(content), content_type
+
+        except requests.RequestException as e:
+            raise ValueError(f"Failed to download file: {str(e)}")
 
     def is_supported_file(self, file_path_or_url: str, content_type: Optional[str] = None) -> bool:
         """Check if file format is supported
@@ -260,35 +295,7 @@ class FileProcessor:
         if local_path is not None:
             return await self._read_local_file(local_path, max_size_mb)
 
-        try:
-            response = requests.get(url, stream=True, timeout=30)
-            response.raise_for_status()
-
-            # Get Content-Type header
-            content_type_header = response.headers.get('content-type', '')
-            content_type = content_type_header.split(';')[0].strip().lower() if content_type_header else None
-
-            # Check content length
-            content_length = response.headers.get('content-length')
-            if content_length:
-                size_mb = int(content_length) / (1024 * 1024)
-                if size_mb > max_size_mb:
-                    raise ValueError(f"File too large: {size_mb:.1f}MB (max: {max_size_mb}MB)")
-
-            # Download with size limit
-            content = b""
-            max_bytes = max_size_mb * 1024 * 1024
-
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    content += chunk
-                    if len(content) > max_bytes:
-                        raise ValueError(f"File too large: exceeds {max_size_mb}MB limit")
-
-            return content, content_type
-
-        except requests.RequestException as e:
-            raise ValueError(f"Failed to download file: {str(e)}")
+        return await asyncio.to_thread(self._download_http_file_sync, url, max_size_mb)
 
     def extract_zip_contents(self, zip_data: bytes) -> Dict[str, Any]:
         """Extract and process contents of ZIP file"""
@@ -422,7 +429,10 @@ class FileProcessor:
 
             # Handle ZIP files specially
             if ext == '.zip':
-                zip_contents = self.extract_zip_contents(file_data)
+                zip_contents = await asyncio.wait_for(
+                    asyncio.to_thread(self.extract_zip_contents, file_data),
+                    timeout=_FILE_PROCESS_TIMEOUT_SECONDS,
+                )
                 return {
                     'success': True,
                     'url': url,
@@ -439,7 +449,10 @@ class FileProcessor:
                 temp_file.flush()
 
                 try:
-                    result = self.markitdown.convert(temp_file.name)
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(self.markitdown.convert, temp_file.name),
+                        timeout=_FILE_PROCESS_TIMEOUT_SECONDS,
+                    )
                     return {
                         'success': True,
                         'url': url,
@@ -457,6 +470,13 @@ class FileProcessor:
                     except:
                         pass
 
+        except asyncio.TimeoutError:
+            return {
+                'success': False,
+                'error': f"File processing timed out after {_FILE_PROCESS_TIMEOUT_SECONDS:g} seconds",
+                'url': url,
+                'file_type': None
+            }
         except Exception as e:
             return {
                 'success': False,
@@ -481,7 +501,10 @@ class FileProcessor:
 
             # Handle ZIP files specially
             if filename.lower().endswith('.zip'):
-                zip_contents = self.extract_zip_contents(file_data)
+                zip_contents = await asyncio.wait_for(
+                    asyncio.to_thread(self.extract_zip_contents, file_data),
+                    timeout=_FILE_PROCESS_TIMEOUT_SECONDS,
+                )
                 return {
                     'success': True,
                     'filename': filename,
@@ -498,7 +521,10 @@ class FileProcessor:
                 temp_file.flush()
 
                 try:
-                    result = self.markitdown.convert(temp_file.name)
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(self.markitdown.convert, temp_file.name),
+                        timeout=_FILE_PROCESS_TIMEOUT_SECONDS,
+                    )
                     return {
                         'success': True,
                         'filename': filename,
@@ -516,6 +542,13 @@ class FileProcessor:
                     except:
                         pass
 
+        except asyncio.TimeoutError:
+            return {
+                'success': False,
+                'error': f"File processing timed out after {_FILE_PROCESS_TIMEOUT_SECONDS:g} seconds",
+                'filename': filename,
+                'file_type': file_type
+            }
         except Exception as e:
             return {
                 'success': False,

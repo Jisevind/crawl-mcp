@@ -14,7 +14,7 @@ from ._shared import (
     finalize_tool_response,
     KIND_MARKDOWN_BATCH_LIST,
     modules_unavailable_error,
-    READONLY_ANNOTATIONS,
+    OPEN_WORLD_ANNOTATIONS,
 )
 from ..validators import validate_batch_urls, validate_timeout, validate_url
 
@@ -22,7 +22,7 @@ from ..validators import validate_batch_urls, validate_timeout, validate_url
 def register_batch_tools(mcp, get_modules):
     """Register batch crawl and utility MCP tools."""
 
-    @mcp.tool()
+    @mcp.tool(annotations=OPEN_WORLD_ANNOTATIONS)
     async def batch_crawl(
         urls: Annotated[List[str], Field(description="URLs to crawl (max 3)")],
         base_timeout: Annotated[int, Field(description="Timeout per URL (default: 30)")] = 30,
@@ -222,7 +222,7 @@ def register_batch_tools(mcp, get_modules):
                     "error": f"Batch crawl error: {str(e)}"
                 }]
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(annotations=OPEN_WORLD_ANNOTATIONS)
     async def multi_url_crawl(
         url_configurations: Annotated[Dict[str, Dict], Field(description="URL-config mapping (max 5 URLs). Example: {'https://site1.com': {'wait_for_js': true}}")],
         pattern_matching: Annotated[str, Field(description="Pattern: 'wildcard' or 'regex' (default: wildcard)")] = "wildcard",

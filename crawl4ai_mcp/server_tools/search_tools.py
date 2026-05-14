@@ -16,8 +16,8 @@ from ._shared import (
     KIND_SEARCH_JSON,
     KIND_MARKDOWN_BATCH_DICT,
     modules_unavailable_error,
-    READONLY_ANNOTATIONS,
     READONLY_CLOSED_ANNOTATIONS,
+    OPEN_WORLD_ANNOTATIONS,
 )
 
 
@@ -33,7 +33,7 @@ def _extract_persist_opts(request: Dict[str, Any]):
 def register_search_tools(mcp, get_modules):
     """Register search-related MCP tools."""
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(annotations=OPEN_WORLD_ANNOTATIONS)
     async def search_google(
         request: Annotated[Dict[str, Any], Field(description="Dict with: query (required), num_results, search_genre, language, region, recent_days, content_limit (int), content_offset (int). Optional persistence keys: output_path (absolute file path, auto .json extension — full unsliced results written to disk BEFORE content_limit/content_offset slicing), include_content_in_response (bool, default False — when True keeps results in the response too, still subject to slicing), overwrite (bool, default False).")]
     ) -> Dict[str, Any]:
@@ -126,7 +126,7 @@ def register_search_tools(mcp, get_modules):
                 "error": f"Google search error: {str(e)}"
             }
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(annotations=OPEN_WORLD_ANNOTATIONS)
     async def batch_search_google(
         request: Annotated[Dict[str, Any], Field(description="Dict with: queries (max 3), num_results_per_query, search_genre, recent_days. Optional persistence keys: output_path (absolute file path, auto .json extension — full result set written to disk), include_content_in_response (bool, default False — when True keeps results in the response too), overwrite (bool, default False).")]
     ) -> Dict[str, Any]:
@@ -165,7 +165,7 @@ def register_search_tools(mcp, get_modules):
                 "error": f"Batch search error: {str(e)}"
             }
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(annotations=OPEN_WORLD_ANNOTATIONS)
     async def search_and_crawl(
         request: Annotated[Dict[str, Any], Field(description="Dict with: search_query (required), crawl_top_results, search_genre, recent_days, generate_markdown, max_content_per_page. Optional persistence keys: output_path (absolute directory — per-page .md files + index.json, the full page bodies are written BEFORE max_content_per_page truncation; dot-containing dir names are fine), include_content_in_response (bool, default False — when True keeps crawled_pages in the response too, still subject to max_content_per_page truncation), overwrite (bool, default False). Failed pages appear in index.json with file=null.")]
     ) -> Dict[str, Any]:

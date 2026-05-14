@@ -13,8 +13,8 @@ from ._shared import (
     KIND_MARKDOWN_SINGLE,
     KIND_STRUCTURED_JSON,
     modules_unavailable_error,
-    READONLY_ANNOTATIONS,
     READONLY_CLOSED_ANNOTATIONS,
+    OPEN_WORLD_ANNOTATIONS,
 )
 from ..validators import validate_url
 
@@ -22,7 +22,7 @@ from ..validators import validate_url
 def register_file_tools(mcp, get_modules):
     """Register file processing MCP tools."""
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(annotations=OPEN_WORLD_ANNOTATIONS)
     async def process_file(
         url: Annotated[str, Field(description="File URL or local path (PDF, Office, ZIP). Supports http/https URLs, file:// URIs, and absolute paths.")],
         max_size_mb: Annotated[int, Field(description="Max file size in MB")] = 100,
@@ -138,7 +138,7 @@ def register_file_tools(mcp, get_modules):
                 "error": f"Get supported formats error: {str(e)}"
             }
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(annotations=OPEN_WORLD_ANNOTATIONS)
     async def enhanced_process_large_content(
         url: Annotated[str, Field(description="URL to process")],
         chunking_strategy: Annotated[str, Field(description="'topic'|'sentence'|'overlap'|'regex'")] = "sentence",

@@ -10,7 +10,7 @@ from ._shared import (
     finalize_tool_response,
     KIND_STRUCTURED_JSON,
     modules_unavailable_error,
-    READONLY_ANNOTATIONS,
+    OPEN_WORLD_ANNOTATIONS,
 )
 
 
@@ -43,7 +43,7 @@ def _maybe_persist(
 def register_extraction_tools(mcp, get_modules):
     """Register extraction-related MCP tools."""
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(annotations=OPEN_WORLD_ANNOTATIONS)
     async def intelligent_extract(
         url: Annotated[str, Field(description="Target URL")],
         extraction_goal: Annotated[str, Field(description="Data to extract")],
@@ -147,7 +147,7 @@ def register_extraction_tools(mcp, get_modules):
                 "error": f"Intelligent extraction error: {str(e)}"
             }
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(annotations=OPEN_WORLD_ANNOTATIONS)
     async def extract_entities(
         url: Annotated[str, Field(description="Target URL")],
         entity_types: Annotated[List[str], Field(description="Types: email, phone, url, date, ip, price")],
@@ -282,7 +282,7 @@ def register_extraction_tools(mcp, get_modules):
                 "error": f"Entity extraction error: {str(e)}"
             }
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(annotations=OPEN_WORLD_ANNOTATIONS)
     async def extract_structured_data(
         url: Annotated[str, Field(description="Target URL")],
         extraction_type: Annotated[str, Field(description="'css'|'llm'|'table'")] = "css",

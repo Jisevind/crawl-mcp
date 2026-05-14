@@ -37,6 +37,7 @@ from ..middleware.file_persistence import (
 # Tool annotations constants
 READONLY_ANNOTATIONS = {"readOnlyHint": True}
 READONLY_CLOSED_ANNOTATIONS = {"readOnlyHint": True, "openWorldHint": False}
+OPEN_WORLD_ANNOTATIONS = {"readOnlyHint": False, "openWorldHint": True}
 
 # Re-export for convenient access
 __all__ = [
@@ -69,6 +70,7 @@ __all__ = [
     # annotations
     "READONLY_ANNOTATIONS",
     "READONLY_CLOSED_ANNOTATIONS",
+    "OPEN_WORLD_ANNOTATIONS",
 ]
 
 
