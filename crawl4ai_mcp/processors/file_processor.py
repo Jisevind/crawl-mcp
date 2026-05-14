@@ -17,7 +17,12 @@ from urllib.parse import urlparse, unquote
 import logging
 import re
 
-from ..validators import is_file_uri, is_local_path, file_uri_to_local_path
+from ..validators import (
+    is_file_uri,
+    is_local_path,
+    file_uri_to_local_path,
+    validate_local_file_path,
+)
 
 # Content-Type to file extension mapping for URLs without extension
 CONTENT_TYPE_TO_EXT = {
@@ -43,6 +48,11 @@ _KNOWN_FILE_URL_PATTERNS = [
     # Generic /pdf/ path heuristic (e.g., publisher sites)
     (re.compile(r'https?://[^/]+/.*/pdf/'), '.pdf'),
 ]
+
+_ZIP_MAX_FILES = int(os.getenv("CRAWL4AI_ZIP_MAX_FILES", "25"))
+_ZIP_MAX_ENTRY_MB = int(os.getenv("CRAWL4AI_ZIP_MAX_ENTRY_MB", "25"))
+_ZIP_MAX_TOTAL_MB = int(os.getenv("CRAWL4AI_ZIP_MAX_TOTAL_MB", "100"))
+_ZIP_MAX_COMPRESSION_RATIO = float(os.getenv("CRAWL4AI_ZIP_MAX_COMPRESSION_RATIO", "100"))
 
 
 class FileProcessor:
@@ -100,6 +110,9 @@ class FileProcessor:
 
     async def _read_local_file(self, file_path: str, max_size_mb: int = 100) -> tuple:
         path = Path(file_path).resolve()
+        path_error = validate_local_file_path(str(path))
+        if path_error:
+            raise ValueError(path_error["error"])
         if not path.exists():
             raise ValueError(f"File not found: {file_path}")
         if not path.is_file():
@@ -283,9 +296,38 @@ class FileProcessor:
 
         try:
             with zipfile.ZipFile(io.BytesIO(zip_data), 'r') as zip_ref:
-                file_list = zip_ref.namelist()
+                file_infos = [
+                    info for info in zip_ref.infolist()
+                    if not info.is_dir() and not info.filename.startswith('.')
+                ]
+                if len(file_infos) > _ZIP_MAX_FILES:
+                    raise ValueError(
+                        f"ZIP contains too many files ({len(file_infos)} > {_ZIP_MAX_FILES})"
+                    )
 
-                for file_name in file_list:
+                max_entry_bytes = _ZIP_MAX_ENTRY_MB * 1024 * 1024
+                max_total_bytes = _ZIP_MAX_TOTAL_MB * 1024 * 1024
+                total_uncompressed = sum(info.file_size for info in file_infos)
+                if total_uncompressed > max_total_bytes:
+                    raise ValueError(
+                        f"ZIP uncompressed size too large "
+                        f"({total_uncompressed / 1024 / 1024:.1f}MB > {_ZIP_MAX_TOTAL_MB}MB)"
+                    )
+
+                for info in file_infos:
+                    if info.file_size > max_entry_bytes:
+                        raise ValueError(
+                            f"ZIP entry too large: {info.filename} "
+                            f"({info.file_size / 1024 / 1024:.1f}MB > {_ZIP_MAX_ENTRY_MB}MB)"
+                        )
+                    compressed_size = max(info.compress_size, 1)
+                    if info.file_size / compressed_size > _ZIP_MAX_COMPRESSION_RATIO:
+                        raise ValueError(
+                            f"ZIP entry compression ratio too high: {info.filename}"
+                        )
+
+                for info in file_infos:
+                    file_name = info.filename
                     # Skip directories and hidden files
                     if file_name.endswith('/') or file_name.startswith('.'):
                         continue
@@ -296,14 +338,14 @@ class FileProcessor:
                             extracted_files.append({
                                 'name': file_name,
                                 'type': 'unsupported',
-                                'size': zip_ref.getinfo(file_name).file_size,
+                                'size': info.file_size,
                                 'content': None,
                                 'error': 'Unsupported file format'
                             })
                             continue
 
                         # Extract file content
-                        with zip_ref.open(file_name) as file:
+                        with zip_ref.open(info) as file:
                             file_content = file.read()
 
                             # Create temporary file for MarkItDown processing
@@ -348,7 +390,7 @@ class FileProcessor:
                         })
 
                 return {
-                    'total_files': len(file_list),
+                    'total_files': len(file_infos),
                     'processed_files': len(extracted_files),
                     'files': extracted_files
                 }

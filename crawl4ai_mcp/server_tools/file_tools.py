@@ -16,6 +16,7 @@ from ._shared import (
     READONLY_ANNOTATIONS,
     READONLY_CLOSED_ANNOTATIONS,
 )
+from ..validators import validate_url
 
 
 def register_file_tools(mcp, get_modules):
@@ -39,6 +40,10 @@ def register_file_tools(mcp, get_modules):
         overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False.")] = False,
     ) -> dict:
         """Convert PDF, Word, Excel, PowerPoint, ZIP to markdown. Use output_path to persist the full unsliced converted markdown to disk and receive a slim response."""
+        url_error = validate_url(url)
+        if url_error:
+            return url_error
+
         # Output path validation (Guard A)
         output_error = validate_output_path(output_path, overwrite)
         if output_error:
@@ -151,6 +156,10 @@ def register_file_tools(mcp, get_modules):
         overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False.")] = False,
     ) -> Dict[str, Any]:
         """Process large content with chunking and BM25 filtering. Use output_path to persist chunks + summaries to disk as JSON and receive a slim response."""
+        url_error = validate_url(url)
+        if url_error:
+            return url_error
+
         # Output path validation (Guard A)
         output_error = validate_output_path(output_path, overwrite)
         if output_error:

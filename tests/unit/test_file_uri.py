@@ -76,14 +76,24 @@ class TestIsLocalPath:
 
 
 class TestValidateUrlLocalFiles:
-    def test_file_uri_accepted(self):
-        assert validate_url("file:///home/user/doc.pdf") is None
+    def test_file_uri_rejected_when_local_files_disabled(self):
+        result = validate_url("file:///home/user/doc.pdf")
+        assert result is not None
+        assert result["error_code"] == "local_file_access_disabled"
 
-    def test_absolute_unix_path_accepted(self):
-        assert validate_url("/home/user/doc.pdf") is None
+    def test_file_uri_accepted_when_enabled_under_base(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CRAWL4AI_ALLOW_LOCAL_FILES", "true")
+        monkeypatch.setenv("CRAWL4AI_INPUT_BASE_DIR", str(tmp_path))
+        f = tmp_path / "doc.pdf"
+        f.write_text("x")
+        assert validate_url(f.as_uri()) is None
 
-    def test_absolute_windows_path_accepted(self):
-        assert validate_url("C:/Users/doc.pdf") is None
+    def test_absolute_path_rejected_when_outside_base(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CRAWL4AI_ALLOW_LOCAL_FILES", "true")
+        monkeypatch.setenv("CRAWL4AI_INPUT_BASE_DIR", str(tmp_path / "allowed"))
+        result = validate_url(str(tmp_path / "doc.pdf"))
+        assert result is not None
+        assert result["error_code"] == "local_file_path_not_allowed"
 
     def test_http_unchanged(self):
         assert validate_url("http://example.com") is None
@@ -150,16 +160,20 @@ class TestIsSupportedFileLocal:
 
 class TestReadLocalFile:
     @pytest.mark.asyncio
-    async def test_read_via_file_uri(self, tmp_path):
+    async def test_read_via_file_uri(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CRAWL4AI_ALLOW_LOCAL_FILES", "true")
+        monkeypatch.setenv("CRAWL4AI_INPUT_BASE_DIR", str(tmp_path))
         f = tmp_path / "test.txt"
         f.write_text("hello world")
         fp = FileProcessor()
-        content, ct = await fp.download_file(f"file://{f}", max_size_mb=1)
+        content, ct = await fp.download_file(f.as_uri(), max_size_mb=1)
         assert content == b"hello world"
         assert ct is None
 
     @pytest.mark.asyncio
-    async def test_read_via_absolute_path(self, tmp_path):
+    async def test_read_via_absolute_path(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CRAWL4AI_ALLOW_LOCAL_FILES", "true")
+        monkeypatch.setenv("CRAWL4AI_INPUT_BASE_DIR", str(tmp_path))
         f = tmp_path / "test.txt"
         f.write_text("hello world")
         fp = FileProcessor()
@@ -168,29 +182,37 @@ class TestReadLocalFile:
         assert ct is None
 
     @pytest.mark.asyncio
-    async def test_file_not_found(self):
+    async def test_file_not_found(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CRAWL4AI_ALLOW_LOCAL_FILES", "true")
+        monkeypatch.setenv("CRAWL4AI_INPUT_BASE_DIR", str(tmp_path))
         fp = FileProcessor()
         with pytest.raises(ValueError, match="File not found"):
-            await fp.download_file("file:///nonexistent/path/doc.pdf")
+            await fp.download_file((tmp_path / "missing.pdf").as_uri())
 
     @pytest.mark.asyncio
-    async def test_directory_rejected(self, tmp_path):
+    async def test_directory_rejected(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CRAWL4AI_ALLOW_LOCAL_FILES", "true")
+        monkeypatch.setenv("CRAWL4AI_INPUT_BASE_DIR", str(tmp_path))
         fp = FileProcessor()
         with pytest.raises(ValueError, match="Not a regular file"):
-            await fp.download_file(f"file://{tmp_path}")
+            await fp.download_file(tmp_path.as_uri())
 
     @pytest.mark.asyncio
-    async def test_size_limit(self, tmp_path):
+    async def test_size_limit(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CRAWL4AI_ALLOW_LOCAL_FILES", "true")
+        monkeypatch.setenv("CRAWL4AI_INPUT_BASE_DIR", str(tmp_path))
         f = tmp_path / "big.txt"
         f.write_bytes(b"x" * (2 * 1024 * 1024))
         fp = FileProcessor()
         with pytest.raises(ValueError, match="File too large"):
-            await fp.download_file(f"file://{f}", max_size_mb=1)
+            await fp.download_file(f.as_uri(), max_size_mb=1)
 
 
 class TestSymlinkSecurity:
     @pytest.mark.asyncio
-    async def test_symlink_to_unsupported_file_rejected(self, tmp_path):
+    async def test_symlink_to_unsupported_file_rejected(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CRAWL4AI_ALLOW_LOCAL_FILES", "true")
+        monkeypatch.setenv("CRAWL4AI_INPUT_BASE_DIR", str(tmp_path))
         target = tmp_path / "secret.txt.bak"
         target.write_text("sensitive data")
         link = tmp_path / "report.pdf"

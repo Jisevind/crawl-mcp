@@ -76,6 +76,7 @@ class SearchCache:
 
 # Module-level cache instance — maintains the same public API surface.
 _search_cache = SearchCache()
+_search_result_cache = _search_cache._store
 
 
 class SearchCacheMiddleware(Middleware):
@@ -158,3 +159,18 @@ def _get_search_cache_key(request: dict) -> str:
 def clear_search_cache() -> None:
     """Clear the search result cache. Useful for testing."""
     _search_cache.clear()
+
+
+def _cleanup_expired_cache() -> None:
+    """Remove expired entries from the module-level search cache."""
+    _search_cache._cleanup_expired()
+
+
+def _get_cached_search_result(cache_key: str) -> Optional[dict]:
+    """Get a cached search result from the module-level search cache."""
+    return _search_cache.get(cache_key)
+
+
+def _cache_search_result(cache_key: str, result: dict) -> None:
+    """Store a search result in the module-level search cache."""
+    _search_cache.put(cache_key, result)

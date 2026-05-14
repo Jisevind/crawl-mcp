@@ -48,6 +48,61 @@ def file_uri_to_local_path(uri: str) -> str:
     return path
 
 
+def _path_under_base(path: Path, base: Path) -> bool:
+    """Return True when path is base itself or a descendant of base."""
+    try:
+        path.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
+def validate_local_file_path(path: str) -> Optional[Dict[str, Any]]:
+    """Validate local file read boundaries.
+
+    Local file access is disabled by default because MCP clients can otherwise
+    read arbitrary supported files from the host. Set
+    CRAWL4AI_ALLOW_LOCAL_FILES=true to enable it. When enabled, paths must
+    resolve under CRAWL4AI_INPUT_BASE_DIR, defaulting to ~/.crawl4ai/input.
+    """
+    enabled = os.getenv("CRAWL4AI_ALLOW_LOCAL_FILES", "").strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        return {
+            "success": False,
+            "error": (
+                "Local file access is disabled. Set "
+                "CRAWL4AI_ALLOW_LOCAL_FILES=true and place files under "
+                "CRAWL4AI_INPUT_BASE_DIR to enable file:// or absolute paths."
+            ),
+            "error_code": "local_file_access_disabled",
+        }
+
+    try:
+        resolved = Path(path).expanduser().resolve()
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Invalid local file path: {e}",
+            "error_code": "invalid_local_file_path",
+        }
+
+    base_dir = os.getenv(
+        "CRAWL4AI_INPUT_BASE_DIR",
+        str(Path.home() / ".crawl4ai" / "input"),
+    )
+    base = Path(base_dir).expanduser().resolve()
+    if not _path_under_base(resolved, base):
+        return {
+            "success": False,
+            "error": (
+                f"Local file path must be under CRAWL4AI_INPUT_BASE_DIR "
+                f"({base}). Got: {path}"
+            ),
+            "error_code": "local_file_path_not_allowed",
+        }
+    return None
+
+
 def validate_url(url: str) -> Optional[Dict[str, Any]]:
     """
     Validate a URL and return error dict if invalid, None if valid.
@@ -69,17 +124,17 @@ def validate_url(url: str) -> Optional[Dict[str, Any]]:
 
     if is_file_uri(url_stripped):
         try:
-            file_uri_to_local_path(url_stripped)
+            local_path = file_uri_to_local_path(url_stripped)
         except ValueError as e:
             return {
                 "success": False,
                 "error": str(e),
                 "error_code": "unsupported_file_uri"
             }
-        return None
+        return validate_local_file_path(local_path)
 
     if is_local_path(url_stripped):
-        return None
+        return validate_local_file_path(url_stripped)
 
     if not url_stripped.startswith(('http://', 'https://')):
         return {
@@ -465,7 +520,7 @@ def validate_output_path(
         str(Path.home() / ".crawl4ai" / "output")
     )
     base = Path(base_dir).expanduser().resolve()
-    if not str(resolved).startswith(str(base) + os.sep):
+    if not _path_under_base(resolved, base):
         return {
             "success": False,
             "error_code": "output_path_not_allowed",

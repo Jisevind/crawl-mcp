@@ -288,12 +288,6 @@ def register_search_tools(mcp, get_modules):
                                 fallback_result["fallback_used"] = True
                                 fallback_result["original_search_crawl_error"] = str(e)
 
-                                # Truncate if needed
-                                if "content" in fallback_result and len(fallback_result["content"]) > max_content_per_page:
-                                    fallback_result["content"] = fallback_result["content"][:max_content_per_page] + "... [truncated for size limit]"
-                                if "markdown" in fallback_result and len(fallback_result["markdown"]) > max_content_per_page:
-                                    fallback_result["markdown"] = fallback_result["markdown"][:max_content_per_page] + "... [truncated for size limit]"
-
                             crawled_pages.append(fallback_result)
 
                         except Exception as individual_error:
@@ -316,6 +310,14 @@ def register_search_tools(mcp, get_modules):
                     # Guard B: persist even the fallback response so disk
                     # holds full per-page bodies.
                     fallback_response = _persist(fallback_response)
+
+                    if isinstance(fallback_response, dict) and "crawled_pages" in fallback_response:
+                        for page in fallback_response["crawled_pages"]:
+                            if isinstance(page, dict):
+                                if "content" in page and len(page["content"]) > max_content_per_page:
+                                    page["content"] = page["content"][:max_content_per_page] + "... [truncated for size limit]"
+                                if "markdown" in page and len(page["markdown"]) > max_content_per_page:
+                                    page["markdown"] = page["markdown"][:max_content_per_page] + "... [truncated for size limit]"
 
                     # Apply token limit fallback before returning
                     return apply_token_limit(fallback_response, max_tokens=25000)

@@ -64,7 +64,8 @@ class TestCrawlUrlScreenshot:
         return fm
 
     @pytest.mark.asyncio
-    async def test_screenshot_persisted_with_output_path(self, tmp_path):
+    async def test_screenshot_persisted_with_output_path(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CRAWL4AI_OUTPUT_BASE_DIR", str(tmp_path))
         web_crawling = MagicMock()
         web_crawling.crawl_url = AsyncMock(
             return_value=_crawl_result_with_screenshot()
@@ -110,7 +111,8 @@ class TestCrawlUrlWithFallbackScreenshot:
         return fm
 
     @pytest.mark.asyncio
-    async def test_screenshot_persisted_with_output_path(self, tmp_path):
+    async def test_screenshot_persisted_with_output_path(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CRAWL4AI_OUTPUT_BASE_DIR", str(tmp_path))
         web_crawling = MagicMock()
         web_crawling.crawl_url_with_fallback = AsyncMock(
             return_value=_crawl_result_with_screenshot()
@@ -130,8 +132,8 @@ class TestCrawlUrlWithFallbackScreenshot:
         assert ss_path.exists()
 
     @pytest.mark.asyncio
-    async def test_screenshot_preserved_without_output_path(self):
-        """Without output_path, crawl_url_with_fallback should NOT drop screenshots."""
+    async def test_screenshot_dropped_without_output_path(self):
+        """Without output_path, crawl_url_with_fallback drops screenshots like crawl_url."""
         web_crawling = MagicMock()
         web_crawling.crawl_url_with_fallback = AsyncMock(
             return_value=_crawl_result_with_screenshot()
@@ -143,7 +145,7 @@ class TestCrawlUrlWithFallbackScreenshot:
             take_screenshot=True,
         )
 
-        assert result.get("screenshot") == _PNG_B64
-        assert "warnings" not in result or not any(
-            "output_path" in w for w in result.get("warnings", [])
-        )
+        assert "screenshot" not in result
+        assert "screenshot_path" not in result
+        warnings = result.get("warnings", [])
+        assert any("output_path" in w for w in warnings)

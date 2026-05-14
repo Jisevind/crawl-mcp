@@ -19,6 +19,7 @@ from ._shared import (
     modules_unavailable_error,
     READONLY_ANNOTATIONS,
 )
+from ..validators import validate_crawl_depth, validate_max_pages
 
 
 def register_crawl_tools(mcp, get_modules):
@@ -246,6 +247,32 @@ def register_crawl_tools(mcp, get_modules):
         overwrite: Annotated[bool, Field(description="Overwrite existing per-URL files inside output_path. Defaults to False (existing files cause an output_path_exists error).")] = False,
     ) -> Dict[str, Any]:
         """Crawl multiple pages from a site with configurable depth. Use output_path (directory) to persist per-URL markdown files + index.json; the response is then slimmed to metadata only."""
+        validation_error = validate_crawl_url_params(url, base_timeout)
+        if validation_error:
+            return validation_error
+
+        depth_error = validate_crawl_depth(max_depth, max_allowed=2)
+        if depth_error:
+            return depth_error
+
+        pages_error = validate_max_pages(max_pages, max_allowed=10)
+        if pages_error:
+            return pages_error
+
+        if crawl_strategy not in {"bfs", "dfs", "best_first"}:
+            return {
+                "success": False,
+                "error": f"Invalid crawl_strategy: {crawl_strategy}",
+                "error_code": "invalid_crawl_strategy",
+            }
+
+        if score_threshold < 0.0 or score_threshold > 1.0:
+            return {
+                "success": False,
+                "error": f"score_threshold must be between 0.0 and 1.0. Got: {score_threshold}",
+                "error_code": "invalid_score_threshold",
+            }
+
         # Output path validation (Guard A)
         output_error = validate_output_path(output_path, overwrite)
         if output_error:
@@ -383,6 +410,10 @@ def register_crawl_tools(mcp, get_modules):
         overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False (existing files rejected before any fetch).")] = False,
     ) -> dict:
         """Crawl with fallback strategies for anti-bot sites. Use content_offset/content_limit to paginate the response. Use output_path to persist the full unsliced content to disk as markdown and receive a slim response."""
+        validation_error = validate_crawl_url_params(url, timeout)
+        if validation_error:
+            return validation_error
+
         # Content slicing validation
         slicing_error = validate_content_slicing_params(content_limit, content_offset)
         if slicing_error:
@@ -409,24 +440,22 @@ def register_crawl_tools(mcp, get_modules):
             # Convert to dict and apply content slicing
             result_dict = _convert_result_to_dict(result)
             # Guard B: persist BEFORE slicing so disk holds full content.
-            if output_path:
-                result_dict = finalize_tool_response(
-                    result_dict,
-                    output_path=output_path,
-                    include_content_in_response=include_content_in_response,
-                    overwrite=overwrite,
-                    tool_kind=KIND_MARKDOWN_SINGLE,
-                    source_tool="crawl_url_with_fallback",
-                )
-            if output_path:
-                result_dict = handle_screenshot_persistence(
-                    result_dict,
-                    output_path=output_path,
-                    overwrite=overwrite,
-                    source_tool="crawl_url_with_fallback",
-                )
+            result_dict = finalize_tool_response(
+                result_dict,
+                output_path=output_path,
+                include_content_in_response=include_content_in_response,
+                overwrite=overwrite,
+                tool_kind=KIND_MARKDOWN_SINGLE,
+                source_tool="crawl_url_with_fallback",
+            )
+            result_dict = handle_screenshot_persistence(
+                result_dict,
+                output_path=output_path,
+                overwrite=overwrite,
+                source_tool="crawl_url_with_fallback",
+            )
             result_dict = _apply_content_slicing(result_dict, content_limit, content_offset)
-            return result_dict
+            return apply_token_limit(result_dict, max_tokens=25000)
         except Exception as e:
             return {
                 "success": False,

@@ -16,6 +16,7 @@ from ._shared import (
     modules_unavailable_error,
     READONLY_ANNOTATIONS,
 )
+from ..validators import validate_batch_urls, validate_timeout, validate_url
 
 
 def register_batch_tools(mcp, get_modules):
@@ -33,9 +34,13 @@ def register_batch_tools(mcp, get_modules):
         overwrite: Annotated[bool, Field(description="Overwrite existing per-URL files inside output_path. Defaults to False (existing files cause an output_path_exists error, returned as a single-element list).")] = False,
     ) -> List[Dict[str, Any]]:
         """Crawl multiple URLs with fallback. Max 3 URLs per call. Use output_path (directory) to persist full per-URL markdown + index.json; the return shape stays a list, each success item gets an output_file key."""
-        # URL limit check (MCP best practice: bounded toolsets)
-        if len(urls) > 3:
-            return [{"success": False, "error": "Maximum 3 URLs allowed per batch. Split into multiple calls."}]
+        url_error = validate_batch_urls(urls, max_urls=3)
+        if url_error:
+            return [url_error]
+
+        timeout_error = validate_timeout(base_timeout)
+        if timeout_error:
+            return [timeout_error]
 
         # Output path validation (Guard A). On error we must return a dict
         # rather than the tool's normal list, to signal to the caller.
@@ -233,6 +238,10 @@ def register_batch_tools(mcp, get_modules):
         if len(url_configurations) > 5:
             return [{"success": False, "error": "Maximum 5 URL configurations allowed per batch. Split into multiple calls."}]
 
+        timeout_error = validate_timeout(base_timeout)
+        if timeout_error:
+            return [timeout_error]
+
         # Output path validation (Guard A)
         output_error = validate_output_path(output_path, overwrite)
         if output_error:
@@ -259,6 +268,12 @@ def register_batch_tools(mcp, get_modules):
                     "success": False,
                     "error": "No valid URLs found in configurations. Use direct URLs or wildcard patterns."
                 }]
+
+            for i, url in enumerate(all_urls):
+                url_error = validate_url(url)
+                if url_error:
+                    url_error["error"] = f"Invalid URL at index {i}: {url_error['error']}"
+                    return [url_error]
 
             results = []
 
@@ -293,6 +308,14 @@ def register_batch_tools(mcp, get_modules):
                     "use_undetected_browser": matched_config.get("use_undetected_browser", False),
                     "css_selector": matched_config.get("css_selector")
                 }
+
+                config_timeout_error = validate_timeout(crawl_config["timeout"])
+                if config_timeout_error:
+                    config_timeout_error["error"] = (
+                        f"Invalid timeout for {url}: {config_timeout_error['error']}"
+                    )
+                    results.append(config_timeout_error)
+                    continue
 
                 try:
                     # Crawl with pattern-specific configuration
