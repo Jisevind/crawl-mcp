@@ -25,7 +25,6 @@ dependencies = [
     "litellm>=1.83.7,!=1.82.7,!=1.82.8",
     "fastmcp>=3.0.0,<4",
     "pydantic>=2.0.0",
-    "asyncio",
     "typing-extensions",
     "python-dotenv>=1.0.0",
     "scikit-learn>=1.3.0",

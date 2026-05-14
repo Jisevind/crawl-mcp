@@ -8,7 +8,7 @@ import json
 import logging
 import os
 from typing import Dict, Any, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class LLMProviderConfig:
     base_url: Optional[str]
     base_url_env: Optional[str] = None  # Environment variable name for base URL (AOAI)
     api_version: Optional[str] = None  # API version for Azure OpenAI
-    models: list = None
+    models: list = field(default_factory=list)
     extra_headers: Optional[Dict[str, str]] = None  # Additional HTTP headers for API requests
 
 
