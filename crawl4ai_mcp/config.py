@@ -5,11 +5,13 @@ This module handles loading and managing LLM configuration from MCP server setti
 """
 
 import json
+import logging
 import os
-import sys
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Try to import python-dotenv for .env file support
 try:
@@ -54,17 +56,15 @@ class ConfigManager:
             module_dir = os.path.dirname(os.path.abspath(__file__))
             project_root = os.path.join(module_dir, '..')
             
-            # Look for .env file with absolute paths
+            # Look for .env file in project root only
             env_paths = [
                 os.path.join(project_root, '.env'),  # Project root
-                '.env',  # Current directory (fallback)
-                os.path.join(os.getcwd(), '.env')  # Working directory
             ]
             
             for env_path in env_paths:
                 if os.path.exists(env_path):
                     load_dotenv(env_path, override=False)  # Don't override existing env vars
-                    print(f"✅ Loaded environment variables from {env_path}", file=sys.stderr)
+                    logger.info("Loaded environment variables from %s", env_path)
                     break
             else:
                 # Try to load from any .env file in the working directory
@@ -73,7 +73,7 @@ class ConfigManager:
                 except:
                     pass  # Silently fail if no .env file found
         else:
-            print("⚠️ python-dotenv not available. Install with: pip install python-dotenv", file=sys.stderr)
+            logger.warning("python-dotenv not available. Install with: pip install python-dotenv")
     
     def _load_config(self):
         """Load LLM configuration from MCP server environment or config files"""
@@ -86,16 +86,15 @@ class ConfigManager:
                 self.llm_config = self._parse_llm_config(config_data)
                 return
             except (json.JSONDecodeError, KeyError) as e:
-                print(f"Warning: Failed to parse MCP_LLM_CONFIG: {e}", file=sys.stderr)
+                logger.warning("Failed to parse MCP_LLM_CONFIG: %s", e)
         
         # Get module directory and construct absolute paths
         module_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.join(module_dir, '..')
         
-        # Try to load from claude_desktop_config.json with absolute paths
+        # Try to load from claude_desktop_config.json (project root only)
         config_files = [
             os.path.join(project_root, 'claude_desktop_config.json'),  # Project root
-            'claude_desktop_config.json',  # Current directory (fallback)
         ]
         
         for config_file in config_files:
@@ -111,28 +110,28 @@ class ConfigManager:
                     
                     if llm_config_data:
                         self.llm_config = self._parse_llm_config(llm_config_data)
-                        print(f"✅ Loaded LLM config from {config_file}", file=sys.stderr)
+                        logger.info("Loaded LLM config from %s", config_file)
                         
                         # Log API key status for each provider
                         for provider_name, provider_config in self.llm_config.providers.items():
                             if provider_config.api_key:
-                                print(f"✅ Found direct API key for {provider_name} (starts with: {provider_config.api_key[:15]}...)", file=sys.stderr)
+                                logger.info("Found direct API key for %s (from config)", provider_name)
                             elif provider_config.api_key_env:
                                 env_value = os.getenv(provider_config.api_key_env)
                                 if env_value:
-                                    print(f"✅ Found environment API key for {provider_name} from {provider_config.api_key_env} (starts with: {env_value[:15]}...)", file=sys.stderr)
+                                    logger.info("Found environment API key for %s from %s", provider_name, provider_config.api_key_env)
                                 else:
-                                    print(f"❌ Environment variable {provider_config.api_key_env} not set for {provider_name}", file=sys.stderr)
+                                    logger.warning("Environment variable %s not set for %s", provider_config.api_key_env, provider_name)
                             else:
-                                print(f"❌ No API key configuration for {provider_name}", file=sys.stderr)
+                                logger.warning("No API key configuration for %s", provider_name)
                         return
                         
                 except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
-                    print(f"Warning: Failed to load config from {config_file}: {e}", file=sys.stderr)
+                    logger.warning("Failed to load config from %s: %s", config_file, e)
                     continue
         
         # Fallback to default configuration
-        print("Using default LLM configuration", file=sys.stderr)
+        logger.info("Using default LLM configuration")
         self.llm_config = self._get_default_config()
     
     def _parse_llm_config(self, config_data: Dict[str, Any]) -> MCPLLMConfig:
@@ -212,24 +211,24 @@ class ConfigManager:
         """Get API key for a provider (direct key or from environment variables)"""
         provider_config = self.get_provider_config(provider)
         if not provider_config:
-            print(f"Warning: No config found for provider {provider}", file=sys.stderr)
+            logger.warning("No config found for provider %s", provider)
             return None
         
         # First, try direct API key
         if provider_config.api_key:
-            print(f"✅ Loaded API key for {provider} from configuration (starts with: {provider_config.api_key[:15]}...)", file=sys.stderr)
+            logger.info("Loaded API key for %s from configuration", provider)
             return provider_config.api_key
         
         # Then, try environment variable
         if provider_config.api_key_env:
             env_key = os.getenv(provider_config.api_key_env)
             if env_key:
-                print(f"✅ Loaded API key for {provider} from environment variable {provider_config.api_key_env} (starts with: {env_key[:15]}...)", file=sys.stderr)
+                logger.info("Loaded API key for %s from environment variable %s", provider, provider_config.api_key_env)
                 return env_key
             else:
-                print(f"❌ Environment variable {provider_config.api_key_env} not set for {provider}", file=sys.stderr)
+                logger.warning("Environment variable %s not set for %s", provider_config.api_key_env, provider)
         
-        print(f"Warning: No API key found for {provider}", file=sys.stderr)
+        logger.warning("No API key found for %s", provider)
         return None
     
     def get_base_url(self, provider: str) -> Optional[str]:
@@ -246,10 +245,10 @@ class ConfigManager:
         if provider_config.base_url_env:
             env_url = os.getenv(provider_config.base_url_env)
             if env_url:
-                print(f"✅ Loaded base URL for {provider} from environment variable {provider_config.base_url_env}", file=sys.stderr)
+                logger.info("Loaded base URL for %s from environment variable %s", provider, provider_config.base_url_env)
                 return env_url
             else:
-                print(f"❌ Environment variable {provider_config.base_url_env} not set for {provider}", file=sys.stderr)
+                logger.warning("Environment variable %s not set for %s", provider_config.base_url_env, provider)
         
         return None
     
@@ -310,9 +309,9 @@ class ConfigManager:
             if self.has_valid_api_key(provider):
                 target_provider = provider
                 target_model = model or self.get_default_model()
-                print(f"✅ Using specified provider: {provider}", file=sys.stderr)
+                logger.info("Using specified provider: %s", provider)
             else:
-                print(f"⚠️ Specified provider {provider} has no valid API key, trying fallback providers...", file=sys.stderr)
+                logger.warning("Specified provider %s has no valid API key, trying fallback providers...", provider)
                 target_provider = None
         else:
             # Start with default provider
@@ -320,9 +319,9 @@ class ConfigManager:
             if self.has_valid_api_key(default_provider):
                 target_provider = default_provider
                 target_model = model or self.get_default_model()
-                print(f"✅ Using default provider: {default_provider}", file=sys.stderr)
+                logger.info("Using default provider: %s", default_provider)
             else:
-                print(f"⚠️ Default provider {default_provider} has no valid API key, trying fallback providers...", file=sys.stderr)
+                logger.warning("Default provider %s has no valid API key, trying fallback providers...", default_provider)
                 target_provider = None
         
         # If no valid provider found yet, try fallback order
@@ -332,7 +331,7 @@ class ConfigManager:
                     target_provider = fallback_provider
                     # Use compatible model from the working provider
                     target_model = model or self._get_compatible_model(fallback_provider)
-                    print(f"✅ Using fallback provider: {fallback_provider}", file=sys.stderr)
+                    logger.info("Using fallback provider: %s", fallback_provider)
                     break
         
         # If still no valid provider found, raise error
@@ -350,7 +349,7 @@ class ConfigManager:
         
         # Validate model is supported by the provider
         if target_model not in provider_config.models:
-            print(f"⚠️ Model {target_model} not supported by {target_provider}, using first available model", file=sys.stderr)
+            logger.warning("Model %s not supported by %s, using first available model", target_model, target_provider)
             target_model = provider_config.models[0] if provider_config.models else 'default'
         
         # Get API key, base URL, and extra headers
@@ -358,7 +357,7 @@ class ConfigManager:
         base_url = self.get_base_url(target_provider)
         extra_headers = self.get_extra_headers(target_provider)
         
-        print(f"🚀 Creating LLM config: {target_provider}/{target_model}", file=sys.stderr)
+        logger.info("Creating LLM config: %s/%s", target_provider, target_model)
         
         # Create LLMConfig with extra_headers support
         config_params = {
@@ -371,11 +370,11 @@ class ConfigManager:
         if extra_headers:
             try:
                 llm_config = LLMConfig(**config_params, extra_headers=extra_headers)
-                print(f"✅ Applied extra headers for {target_provider}: {list(extra_headers.keys())}", file=sys.stderr)
+                logger.info("Applied extra headers for %s: %s", target_provider, list(extra_headers.keys()))
             except TypeError:
                 # Fallback for older Crawl4AI versions without extra_headers support
                 llm_config = LLMConfig(**config_params)
-                print(f"⚠️ Extra headers specified but not supported by current Crawl4AI version", file=sys.stderr)
+                logger.warning("Extra headers specified but not supported by current Crawl4AI version")
         else:
             llm_config = LLMConfig(**config_params)
         
@@ -409,20 +408,36 @@ class ConfigManager:
         return {name: config.models for name, config in self.llm_config.providers.items()}
 
 
-# Global configuration manager instance
-config_manager = ConfigManager()
+# Global configuration manager — lazy-initialized so that importing the
+# config module does not trigger side effects (env loading, file reading).
+_config_manager: Optional[ConfigManager] = None
+
+
+def __getattr__(name: str):
+    """Lazy-resolve ``config_manager`` for backward compatibility."""
+    if name == "config_manager":
+        return get_config_manager()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def get_config_manager() -> ConfigManager:
+    """Return the module-level ConfigManager singleton, creating it on first call."""
+    global _config_manager
+    if _config_manager is None:
+        _config_manager = ConfigManager()
+    return _config_manager
 
 
 def get_llm_config(provider: Optional[str] = None, model: Optional[str] = None):
     """Convenience function to get LLMConfig with provider/model"""
-    return config_manager.create_llm_config(provider, model)
+    return get_config_manager().create_llm_config(provider, model)
 
 
 def get_default_provider() -> str:
     """Convenience function to get default provider"""
-    return config_manager.get_default_provider()
+    return get_config_manager().get_default_provider()
 
 
 def get_default_model() -> str:
     """Convenience function to get default model"""
-    return config_manager.get_default_model()
+    return get_config_manager().get_default_model()

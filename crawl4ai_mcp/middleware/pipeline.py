@@ -94,7 +94,16 @@ class ToolPipeline:
                 return ctx.result
 
         # Execute handler
-        ctx.result = await handler(**ctx.params)
+        try:
+            ctx.result = await handler(**ctx.params)
+        except Exception as e:
+            import traceback
+            ctx.result = {
+                "success": False,
+                "error": str(e),
+                "error_code": "handler_exception",
+                "traceback": traceback.format_exc(),
+            }
 
         # Run after hooks
         for mw in self._middlewares:

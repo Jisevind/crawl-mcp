@@ -17,6 +17,7 @@ from ..constants import (
     LLM_API_TIMEOUT,
     MAX_CONTENT_FOR_LLM,
 )
+from .llm_providers import clean_json_response
 
 
 def get_llm_config_safe(
@@ -391,11 +392,7 @@ Content to summarize:
 
         try:
             # Clean up the extracted content if it's wrapped in markdown
-            content_to_parse = extracted_content
-            if content_to_parse.startswith('```json'):
-                content_to_parse = content_to_parse.replace('```json', '').replace('```', '').strip()
-            elif content_to_parse.startswith('```'):
-                content_to_parse = content_to_parse.replace('```', '').strip()
+            content_to_parse = clean_json_response(extracted_content)
 
             summary_data = json.loads(content_to_parse)
 

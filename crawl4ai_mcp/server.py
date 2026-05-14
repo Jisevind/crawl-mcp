@@ -54,7 +54,8 @@ def _load_tool_modules() -> bool:
         _tool_modules = (_wc, _s, _yt, _fp, _ut)
         _tools_imported = True
         return True
-    except ImportError:
+    except ImportError as ie1:
+        print(f"Warning: relative import failed ({ie1}), trying absolute import...", file=sys.stderr)
         try:
             from crawl4ai_mcp.tools import web_crawling as _wc
             from crawl4ai_mcp.tools import search as _s
@@ -65,7 +66,8 @@ def _load_tool_modules() -> bool:
             _tool_modules = (_wc, _s, _yt, _fp, _ut)
             _tools_imported = True
             return True
-        except ImportError:
+        except ImportError as ie2:
+            print(f"Warning: absolute import also failed ({ie2}). No tools registered.", file=sys.stderr)
             _tools_imported = False
             return False
 

@@ -24,8 +24,58 @@ class _CacheEntry:
     timestamp: float
 
 
-# Search result cache (LRU + TTL)
-_search_result_cache: OrderedDict[str, _CacheEntry] = OrderedDict()
+class SearchCache:
+    """LRU + TTL cache for search results, encapsulated as a class.
+
+    Replaces the previous module-level ``OrderedDict`` so that concurrent
+    transports (HTTP) can safely hold their own instance and tests can
+    clear state without global side effects.
+    """
+
+    def __init__(self, max_size: int = _SEARCH_CACHE_MAX_SIZE,
+                 ttl_seconds: float = _SEARCH_CACHE_TTL_SECONDS):
+        self._store: OrderedDict[str, _CacheEntry] = OrderedDict()
+        self.max_size = max_size
+        self.ttl_seconds = ttl_seconds
+
+    def _cleanup_expired(self) -> None:
+        now = _time.time()
+        expired = [
+            key for key, entry in self._store.items()
+            if now - entry.timestamp > self.ttl_seconds
+        ]
+        for key in expired:
+            del self._store[key]
+
+    def get(self, cache_key: str) -> Optional[dict]:
+        if cache_key in self._store:
+            entry = self._store[cache_key]
+            if _time.time() - entry.timestamp <= self.ttl_seconds:
+                self._store.move_to_end(cache_key)
+                return entry.data
+            del self._store[cache_key]
+        return None
+
+    def put(self, cache_key: str, result: dict) -> None:
+        if cache_key in self._store:
+            self._store.move_to_end(cache_key)
+            self._store[cache_key] = _CacheEntry(data=result, timestamp=_time.time())
+        else:
+            if len(self._store) >= self.max_size:
+                self._cleanup_expired()
+                if len(self._store) >= self.max_size:
+                    self._store.popitem(last=False)
+            self._store[cache_key] = _CacheEntry(data=result, timestamp=_time.time())
+
+    def clear(self) -> None:
+        self._store.clear()
+
+    def __len__(self) -> int:
+        return len(self._store)
+
+
+# Module-level cache instance — maintains the same public API surface.
+_search_cache = SearchCache()
 
 
 class SearchCacheMiddleware(Middleware):
@@ -43,9 +93,8 @@ class SearchCacheMiddleware(Middleware):
         cache_key = _get_search_cache_key(request)
         ctx.metadata['cache_key'] = cache_key
 
-        cached = _get_cached_search_result(cache_key)
+        cached = _search_cache.get(cache_key)
         if cached is not None:
-            # Add cache_hit indicator
             result = cached.copy()
             result['cache_hit'] = True
             return result
@@ -56,11 +105,11 @@ class SearchCacheMiddleware(Middleware):
         if not isinstance(ctx.result, dict):
             return
         if ctx.result.get('cache_hit'):
-            return  # Already from cache
+            return
 
         cache_key = ctx.metadata.get('cache_key')
         if cache_key and ctx.result.get('success', True):
-            _cache_search_result(cache_key, ctx.result)
+            _search_cache.put(cache_key, ctx.result)
 
 
 def _get_search_cache_key(request: dict) -> str:
@@ -106,46 +155,6 @@ def _get_search_cache_key(request: dict) -> str:
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
-def _cleanup_expired_cache() -> None:
-    """Remove expired cache entries."""
-    now = _time.time()
-    expired_keys = [
-        key for key, entry in _search_result_cache.items()
-        if now - entry.timestamp > _SEARCH_CACHE_TTL_SECONDS
-    ]
-    for key in expired_keys:
-        del _search_result_cache[key]
-
-
-def _get_cached_search_result(cache_key: str) -> Optional[dict]:
-    """Get search result from cache (LRU update, TTL check)."""
-    _cleanup_expired_cache()  # Clean up expired entries first
-
-    if cache_key in _search_result_cache:
-        entry = _search_result_cache[cache_key]
-        # TTL check
-        if _time.time() - entry.timestamp <= _SEARCH_CACHE_TTL_SECONDS:
-            _search_result_cache.move_to_end(cache_key)
-            return entry.data
-        else:
-            # Expired, remove it
-            del _search_result_cache[cache_key]
-    return None
-
-
-def _cache_search_result(cache_key: str, result: dict) -> None:
-    """Store search result in cache."""
-    _cleanup_expired_cache()  # Clean up before storing
-
-    if cache_key in _search_result_cache:
-        _search_result_cache.move_to_end(cache_key)
-        _search_result_cache[cache_key] = _CacheEntry(data=result, timestamp=_time.time())
-    else:
-        if len(_search_result_cache) >= _SEARCH_CACHE_MAX_SIZE:
-            _search_result_cache.popitem(last=False)  # Remove oldest entry
-        _search_result_cache[cache_key] = _CacheEntry(data=result, timestamp=_time.time())
-
-
 def clear_search_cache() -> None:
     """Clear the search result cache. Useful for testing."""
-    _search_result_cache.clear()
+    _search_cache.clear()

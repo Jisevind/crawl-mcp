@@ -2,12 +2,15 @@
 LLM Extraction Client for unified LLM API calls in extraction tasks.
 
 This module provides a unified client for making LLM API calls across different
-providers (OpenAI, Anthropic, Ollama) with support for JSON response parsing.
+providers (OpenAI, Anthropic, Ollama, Azure OpenAI) with support for JSON
+response parsing.
 """
 
 import json
 import os
 from typing import Any, Dict, Optional
+
+from .llm_providers import clean_json_response, resolve_api_key, resolve_base_url
 
 # Ollama default URL
 OLLAMA_DEFAULT_URL = "http://localhost:11434"
@@ -97,8 +100,10 @@ class LLMExtractionClient:
             return await self._call_anthropic(prompt, system_message, temperature, max_tokens)
         elif self.provider == 'ollama':
             return await self._call_ollama(prompt, temperature)
+        elif self.provider == 'aoai':
+            return await self._call_azure_openai(prompt, system_message, temperature, max_tokens)
         else:
-            raise ValueError(f"LLM provider '{self.provider}' not supported. Supported: openai, anthropic, ollama")
+            raise ValueError(f"LLM provider '{self.provider}' not supported. Supported: openai, anthropic, ollama, aoai")
 
     async def _call_openai(
         self,
@@ -170,6 +175,7 @@ class LLMExtractionClient:
         import aiohttp
 
         base_url = self.base_url or OLLAMA_DEFAULT_URL
+        timeout = getattr(self, '_ollama_timeout', 120)
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -180,7 +186,7 @@ class LLMExtractionClient:
                     "stream": False,
                     "options": {"temperature": temperature}
                 },
-                timeout=aiohttp.ClientTimeout(total=120)
+                timeout=aiohttp.ClientTimeout(total=timeout)
             ) as response:
                 if response.status == 200:
                     result = await response.json()
@@ -189,31 +195,49 @@ class LLMExtractionClient:
                     error_text = await response.text()
                     raise ValueError(f"Ollama API request failed: {response.status} - {error_text}")
 
+    async def _call_azure_openai(
+        self,
+        prompt: str,
+        system_message: str,
+        temperature: float,
+        max_tokens: int
+    ) -> str:
+        """Call Azure OpenAI API."""
+        import openai
+
+        api_key = resolve_api_key("aoai", self.api_key)
+        api_base = resolve_base_url("aoai", self.base_url)
+        api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+
+        if not api_key:
+            raise ValueError("Azure OpenAI API key not found")
+        if not api_base:
+            raise ValueError("Azure OpenAI endpoint not found")
+
+        client = openai.AsyncAzureOpenAI(
+            api_key=api_key,
+            api_version=api_version,
+            azure_endpoint=api_base
+        )
+
+        messages = []
+        if system_message:
+            messages.append({"role": "system", "content": system_message})
+        messages.append({"role": "user", "content": prompt})
+
+        response = await client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+
+        return response.choices[0].message.content
+
     @staticmethod
     def clean_json_response(content: str) -> str:
-        """Remove markdown code block markers from JSON response.
-
-        Args:
-            content: Raw LLM response that may contain ```json markers
-
-        Returns:
-            Cleaned content ready for JSON parsing
-        """
-        if not content:
-            return content
-
-        content = content.strip()
-
-        # Remove ```json or ``` markers
-        if content.startswith('```json'):
-            content = content[7:]  # Remove '```json'
-        elif content.startswith('```'):
-            content = content[3:]  # Remove '```'
-
-        if content.endswith('```'):
-            content = content[:-3]  # Remove trailing '```'
-
-        return content.strip()
+        """Remove markdown code block markers from JSON response."""
+        return clean_json_response(content)
 
     @staticmethod
     def parse_json_response(content: str) -> Dict[str, Any]:

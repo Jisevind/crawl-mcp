@@ -43,6 +43,184 @@ from .crawler_summarizer import (
     MAX_RESPONSE_CHARS,
 )
 
+# Cached result of inspect.signature(CrawlerRunConfig) for performance.
+# Computed once at module level and reused across every crawl request.
+_CRAWLER_RUN_CONFIG_PARAMS = None
+_CRAWLER_RUN_CONFIG_ACCEPTS_KWARGS = False
+
+
+def _get_crawler_run_config_info():
+    global _CRAWLER_RUN_CONFIG_PARAMS, _CRAWLER_RUN_CONFIG_ACCEPTS_KWARGS
+    if _CRAWLER_RUN_CONFIG_PARAMS is not None:
+        return _CRAWLER_RUN_CONFIG_PARAMS, _CRAWLER_RUN_CONFIG_ACCEPTS_KWARGS
+    import inspect
+    try:
+        sig = inspect.signature(CrawlerRunConfig)
+        _CRAWLER_RUN_CONFIG_PARAMS = set(sig.parameters.keys())
+        for param in sig.parameters.values():
+            if param.kind == inspect.Parameter.VAR_KEYWORD:
+                _CRAWLER_RUN_CONFIG_ACCEPTS_KWARGS = True
+                break
+    except (ValueError, TypeError):
+        _CRAWLER_RUN_CONFIG_PARAMS = set()
+        _CRAWLER_RUN_CONFIG_ACCEPTS_KWARGS = False
+    return _CRAWLER_RUN_CONFIG_PARAMS, _CRAWLER_RUN_CONFIG_ACCEPTS_KWARGS
+
+
+async def _maybe_summarize(
+    content: str,
+    markdown: str,
+    title: str,
+    request: CrawlRequest,
+    original_content_length: int,
+) -> tuple:
+    """Optionally summarize content via LLM when auto_summarize is enabled.
+
+    Returns ``(content, markdown, extracted_data_or_none)``. When summarization
+    is not triggered, returned ``extracted_data`` is ``None`` and
+    content/markdown are returned unchanged.
+    """
+    if not (request.auto_summarize and content and not request.pagination_active):
+        return content, markdown, None
+
+    estimated_tokens = len(content) // 4
+    if estimated_tokens <= request.max_content_tokens:
+        return content, markdown, None
+
+    try:
+        content_for_summary = markdown or content
+        summary_result = await summarize_web_content(
+            content=content_for_summary,
+            title=title, url=request.url,
+            summary_length=request.summary_length,
+            llm_provider=request.llm_provider, llm_model=request.llm_model
+        )
+        if summary_result.get("success"):
+            return (
+                summary_result["summary"],
+                summary_result["summary"],
+                {
+                    "summarization_applied": True,
+                    "original_content_length": original_content_length,
+                    "original_tokens_estimate": estimated_tokens,
+                    "summary_length": request.summary_length,
+                    "compression_ratio": summary_result.get("compressed_ratio", 0),
+                    "key_topics": summary_result.get("key_topics", []),
+                    "content_type": summary_result.get("content_type", "Unknown"),
+                    "main_insights": summary_result.get("main_insights", []),
+                    "technical_details": summary_result.get("technical_details", []),
+                    "llm_provider": summary_result.get("llm_provider", "unknown"),
+                    "llm_model": summary_result.get("llm_model", "unknown"),
+                    "auto_summarization_trigger": f"Content exceeded {request.max_content_tokens} tokens"
+                },
+            )
+        return content, markdown, {
+            "summarization_attempted": True,
+            "summarization_error": summary_result.get("error", "Unknown error"),
+            "original_content_preserved": True
+        }
+    except Exception as e:
+        return content, markdown, {
+            "summarization_attempted": True,
+            "summarization_error": f"Exception during summarization: {str(e)}",
+            "original_content_preserved": True
+        }
+
+
+def _build_deep_crawl_strategy(request: CrawlRequest):
+    """Build a DeepCrawlStrategy from request parameters, or None."""
+    if request.max_depth is None or request.max_depth <= 0:
+        return None
+
+    from urllib.parse import urlparse
+    filters = []
+    if request.url_pattern:
+        filters.append(URLPatternFilter(patterns=[request.url_pattern]))
+    if not request.include_external:
+        domain = urlparse(request.url).netloc
+        filters.append(DomainFilter(allowed_domains=[domain]))
+
+    filter_chain = FilterChain(filters) if filters else None
+
+    if request.crawl_strategy == "dfs":
+        return DFSDeepCrawlStrategy(
+            max_depth=request.max_depth, max_pages=request.max_pages,
+            include_external=request.include_external,
+            filter_chain=filter_chain, score_threshold=request.score_threshold
+        )
+    elif request.crawl_strategy == "best_first":
+        return BestFirstCrawlingStrategy(
+            max_depth=request.max_depth, max_pages=request.max_pages,
+            include_external=request.include_external,
+            filter_chain=filter_chain, score_threshold=request.score_threshold
+        )
+    return BFSDeepCrawlStrategy(
+        max_depth=request.max_depth, max_pages=request.max_pages,
+        include_external=request.include_external,
+        filter_chain=filter_chain, score_threshold=request.score_threshold
+    )
+
+
+def _build_content_filter(request: CrawlRequest):
+    """Build a ContentFilter from request parameters, or None."""
+    if request.content_filter == "bm25" and request.filter_query:
+        return BM25ContentFilter(user_query=request.filter_query)
+    elif request.content_filter == "pruning":
+        return PruningContentFilter(threshold=0.5)
+    elif request.content_filter == "llm" and request.filter_query:
+        return LLMContentFilter(
+            instructions=f"Filter content related to: {request.filter_query}"
+        )
+    return None
+
+
+def _build_chunking_strategy(request: CrawlRequest):
+    """Build a ChunkingStrategy from request parameters, or None."""
+    if not request.chunk_content:
+        return None
+
+    step_size = max(1, int(request.chunk_size * (1 - request.overlap_rate)))
+    overlap_chars = max(0, int(request.chunk_size * request.overlap_rate))
+
+    if request.chunk_strategy == "topic":
+        return TopicSegmentationChunking(num_keywords=5, chunk_size=request.chunk_size)
+    elif request.chunk_strategy == "regex":
+        return RegexChunking(patterns=[r"\n\n", r"\n#{1,6}\s", r"\n---\n"])
+    elif request.chunk_strategy == "sentence":
+        return OverlappingWindowChunking(window_size=request.chunk_size, overlap=overlap_chars)
+    return SlidingWindowChunking(window_size=request.chunk_size, step=step_size)
+
+
+def _build_browser_config(request: CrawlRequest) -> dict:
+    """Build a browser configuration dict from request parameters."""
+    browser_config = {
+        "headless": True,
+        "verbose": False,
+        "browser_type": "webkit"
+    }
+
+    if request.use_undetected_browser:
+        browser_config["enable_stealth"] = True
+        browser_config["browser_type"] = "chromium"
+
+    if request.user_agent:
+        browser_config["user_agent"] = request.user_agent
+
+    headers = dict(request.headers) if request.headers else {}
+    if request.auth_token:
+        has_auth = any(k.lower() == "authorization" for k in headers)
+        if not has_auth:
+            headers["Authorization"] = f"Bearer {request.auth_token}"
+    if headers:
+        browser_config["headers"] = headers
+
+    if request.cookies:
+        browser_config["cookies"] = _normalize_cookies_to_playwright_format(
+            request.cookies, request.url
+        )
+
+    return browser_config
+
 
 async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
     """
@@ -60,47 +238,10 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
             return file_result
 
         # Setup deep crawling strategy if max_depth is specified
-        deep_crawl_strategy = None
-        if request.max_depth is not None and request.max_depth > 0:
-            filters = []
-            if request.url_pattern:
-                filters.append(URLPatternFilter(patterns=[request.url_pattern]))
-            if not request.include_external:
-                from urllib.parse import urlparse
-                domain = urlparse(request.url).netloc
-                filters.append(DomainFilter(allowed_domains=[domain]))
-
-            filter_chain = FilterChain(filters) if filters else None
-
-            if request.crawl_strategy == "dfs":
-                deep_crawl_strategy = DFSDeepCrawlStrategy(
-                    max_depth=request.max_depth, max_pages=request.max_pages,
-                    include_external=request.include_external,
-                    filter_chain=filter_chain, score_threshold=request.score_threshold
-                )
-            elif request.crawl_strategy == "best_first":
-                deep_crawl_strategy = BestFirstCrawlingStrategy(
-                    max_depth=request.max_depth, max_pages=request.max_pages,
-                    include_external=request.include_external,
-                    filter_chain=filter_chain, score_threshold=request.score_threshold
-                )
-            else:
-                deep_crawl_strategy = BFSDeepCrawlStrategy(
-                    max_depth=request.max_depth, max_pages=request.max_pages,
-                    include_external=request.include_external,
-                    filter_chain=filter_chain, score_threshold=request.score_threshold
-                )
+        deep_crawl_strategy = _build_deep_crawl_strategy(request)
 
         # Setup advanced content filtering
-        content_filter_strategy = None
-        if request.content_filter == "bm25" and request.filter_query:
-            content_filter_strategy = BM25ContentFilter(user_query=request.filter_query)
-        elif request.content_filter == "pruning":
-            content_filter_strategy = PruningContentFilter(threshold=0.5)
-        elif request.content_filter == "llm" and request.filter_query:
-            content_filter_strategy = LLMContentFilter(
-                instructions=f"Filter content related to: {request.filter_query}"
-            )
+        content_filter_strategy = _build_content_filter(request)
 
         # Setup cache mode with freshness policy
         from ..infra.content_cache_policy import get_content_cache_policy
@@ -119,19 +260,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
         cache_mode = cache_mode_map.get(resolved_mode, CacheMode.ENABLED)
 
         # Configure chunking if requested
-        chunking_strategy = None
-        if request.chunk_content:
-            step_size = max(1, int(request.chunk_size * (1 - request.overlap_rate)))
-            overlap_chars = max(0, int(request.chunk_size * request.overlap_rate))
-
-            if request.chunk_strategy == "topic":
-                chunking_strategy = TopicSegmentationChunking(num_keywords=5, chunk_size=request.chunk_size)
-            elif request.chunk_strategy == "regex":
-                chunking_strategy = RegexChunking(patterns=[r"\n\n", r"\n#{1,6}\s", r"\n---\n"])
-            elif request.chunk_strategy == "sentence":
-                chunking_strategy = OverlappingWindowChunking(window_size=request.chunk_size, overlap=overlap_chars)
-            else:
-                chunking_strategy = SlidingWindowChunking(window_size=request.chunk_size, step=step_size)
+        chunking_strategy = _build_chunking_strategy(request)
 
         # Create config parameters
         config_params = {
@@ -159,18 +288,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
             config_params["chunking_strategy"] = chunking_strategy
 
         # Build CrawlerRunConfig with backward compatibility
-        import inspect
-        supported_params = None
-        accepts_kwargs = False
-        try:
-            sig = inspect.signature(CrawlerRunConfig)
-            supported_params = set(sig.parameters.keys())
-            for param in sig.parameters.values():
-                if param.kind == inspect.Parameter.VAR_KEYWORD:
-                    accepts_kwargs = True
-                    break
-        except (ValueError, TypeError):
-            pass
+        supported_params, accepts_kwargs = _get_crawler_run_config_info()
 
         all_params = {**config_params, **js_wait_params}
         if content_filter_strategy:
@@ -207,31 +325,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                 unsupported_params = list(all_params.keys())
 
         # Setup browser configuration
-        browser_config = {
-            "headless": True,
-            "verbose": False,
-            "browser_type": "webkit"
-        }
-
-        if request.use_undetected_browser:
-            browser_config["enable_stealth"] = True
-            browser_config["browser_type"] = "chromium"
-
-        if request.user_agent:
-            browser_config["user_agent"] = request.user_agent
-
-        headers = dict(request.headers) if request.headers else {}
-        if request.auth_token:
-            has_auth = any(k.lower() == "authorization" for k in headers)
-            if not has_auth:
-                headers["Authorization"] = f"Bearer {request.auth_token}"
-        if headers:
-            browser_config["headers"] = headers
-
-        if request.cookies:
-            browser_config["cookies"] = _normalize_cookies_to_playwright_format(
-                request.cookies, request.url
-            )
+        browser_config = _build_browser_config(request)
 
         # Execute crawl
         with suppress_stdout_stderr():
@@ -408,47 +502,17 @@ async def _handle_deep_crawl_object_result(result, request: CrawlRequest) -> Cra
     combined_markdown = "\n\n".join(all_markdown) if all_markdown else result.markdown
     title_to_use = (result.metadata or {}).get("title", "")
     extracted_data = {"crawled_pages": len(result.crawled_pages)} if hasattr(result, 'crawled_pages') else {}
+    original_content_len = len("\n\n".join(all_content) if all_content else result.cleaned_html)
 
-    if request.auto_summarize and combined_content and not request.pagination_active:
-        estimated_tokens = len(combined_content) // 4
-        if estimated_tokens > request.max_content_tokens:
-            try:
-                content_for_summary = combined_markdown or combined_content
-                summary_result = await summarize_web_content(
-                    content=content_for_summary,
-                    title=title_to_use, url=request.url,
-                    summary_length=request.summary_length,
-                    llm_provider=request.llm_provider, llm_model=request.llm_model
-                )
-                if summary_result.get("success"):
-                    combined_content = summary_result["summary"]
-                    combined_markdown = summary_result["summary"]
-                    extracted_data.update({
-                        "summarization_applied": True,
-                        "original_content_length": len("\n\n".join(all_content) if all_content else result.cleaned_html),
-                        "original_tokens_estimate": estimated_tokens,
-                        "summary_length": request.summary_length,
-                        "compression_ratio": summary_result.get("compressed_ratio", 0),
-                        "key_topics": summary_result.get("key_topics", []),
-                        "content_type": summary_result.get("content_type", "Unknown"),
-                        "main_insights": summary_result.get("main_insights", []),
-                        "technical_details": summary_result.get("technical_details", []),
-                        "llm_provider": summary_result.get("llm_provider", "unknown"),
-                        "llm_model": summary_result.get("llm_model", "unknown"),
-                        "auto_summarization_trigger": f"Deep crawl content exceeded {request.max_content_tokens} tokens"
-                    })
-                else:
-                    extracted_data.update({
-                        "summarization_attempted": True,
-                        "summarization_error": summary_result.get("error", "Unknown error"),
-                        "original_content_preserved": True
-                    })
-            except Exception as e:
-                extracted_data.update({
-                    "summarization_attempted": True,
-                    "summarization_error": f"Exception during summarization: {str(e)}",
-                    "original_content_preserved": True
-                })
+    combined_content, combined_markdown, summary_data = await _maybe_summarize(
+        content=combined_content,
+        markdown=combined_markdown,
+        title=title_to_use,
+        request=request,
+        original_content_length=original_content_len,
+    )
+    if summary_data:
+        extracted_data.update(summary_data)
 
     response = CrawlResponse(
         success=True, url=request.url, title=title_to_use,
@@ -465,49 +529,15 @@ async def _handle_single_page_result(result, request: CrawlRequest) -> CrawlResp
     """Handle successful single-page crawl result."""
     content_to_use = result.cleaned_html
     markdown_to_use = result.markdown
-    extracted_data = None
     title_to_use = (result.metadata or {}).get("title", "")
 
-    if request.auto_summarize and content_to_use and not request.pagination_active:
-        estimated_tokens = len(content_to_use) // 4
-        if estimated_tokens > request.max_content_tokens:
-            try:
-                content_for_summary = markdown_to_use or content_to_use
-                summary_result = await summarize_web_content(
-                    content=content_for_summary,
-                    title=title_to_use, url=request.url,
-                    summary_length=request.summary_length,
-                    llm_provider=request.llm_provider, llm_model=request.llm_model
-                )
-                if summary_result.get("success"):
-                    content_to_use = summary_result["summary"]
-                    markdown_to_use = summary_result["summary"]
-                    extracted_data = {
-                        "summarization_applied": True,
-                        "original_content_length": len(result.cleaned_html),
-                        "original_tokens_estimate": estimated_tokens,
-                        "summary_length": request.summary_length,
-                        "compression_ratio": summary_result.get("compressed_ratio", 0),
-                        "key_topics": summary_result.get("key_topics", []),
-                        "content_type": summary_result.get("content_type", "Unknown"),
-                        "main_insights": summary_result.get("main_insights", []),
-                        "technical_details": summary_result.get("technical_details", []),
-                        "llm_provider": summary_result.get("llm_provider", "unknown"),
-                        "llm_model": summary_result.get("llm_model", "unknown"),
-                        "auto_summarization_trigger": f"Content exceeded {request.max_content_tokens} tokens"
-                    }
-                else:
-                    extracted_data = {
-                        "summarization_attempted": True,
-                        "summarization_error": summary_result.get("error", "Unknown error"),
-                        "original_content_preserved": True
-                    }
-            except Exception as e:
-                extracted_data = {
-                    "summarization_attempted": True,
-                    "summarization_error": f"Exception during summarization: {str(e)}",
-                    "original_content_preserved": True
-                }
+    content_to_use, markdown_to_use, extracted_data = await _maybe_summarize(
+        content=content_to_use,
+        markdown=markdown_to_use,
+        title=title_to_use,
+        request=request,
+        original_content_length=len(result.cleaned_html),
+    )
 
     response = CrawlResponse(
         success=True, url=request.url, title=title_to_use,

@@ -120,7 +120,7 @@ def apply_token_limit(result: Dict[str, Any], max_tokens: int = 25000) -> Dict[s
     """
     result_copy = result.copy()
 
-    # Check current size
+    # Check current size (full serialization for accuracy on first pass)
     current_tokens = estimate_tokens(json.dumps(result_copy))
 
     if current_tokens <= max_tokens:
@@ -143,14 +143,33 @@ def apply_token_limit(result: Dict[str, Any], max_tokens: int = 25000) -> Dict[s
     # Apply progressive truncation
     result_copy = _truncate_content_fields(result_copy, max_tokens)
 
-    # Final size check and emergency truncation
-    current_tokens = estimate_tokens(json.dumps(result_copy))
+    # Final size check and emergency truncation — use field-level estimation
+    # to avoid a second full JSON serialization of a large payload.
+    current_tokens = _estimate_dict_tokens(result_copy)
     if current_tokens > max_tokens:
         result_copy = _apply_emergency_truncation(
             result, result_copy, current_tokens, max_tokens
         )
 
     return result_copy
+
+
+def _estimate_dict_tokens(d: Dict[str, Any]) -> int:
+    """Estimate total token count from dict fields without full JSON serialization.
+
+    Avoids the memory overhead of ``json.dumps`` for already-truncated responses
+    that may still be large. Falls back to full serialization for nested dicts/lists
+    since their contribution is typically bounded after truncation.
+    """
+    total = 0
+    for value in d.values():
+        if isinstance(value, str):
+            total += estimate_tokens(value)
+        elif isinstance(value, (dict, list)):
+            total += estimate_tokens(json.dumps(value))
+        elif value is not None:
+            total += estimate_tokens(str(value))
+    return total
 
 
 def _generate_recommendations(result: Dict[str, Any]) -> List[str]:

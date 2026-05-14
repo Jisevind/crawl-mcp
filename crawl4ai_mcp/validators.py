@@ -4,6 +4,7 @@ This module provides validation functions for various input parameters
 used in MCP tools.
 """
 
+import os
 import re
 from pathlib import Path
 from typing import Any, Optional, Dict, List
@@ -455,6 +456,18 @@ def validate_output_path(
             "success": False,
             "error_code": "output_path_not_absolute",
             "error": f"output_path must be absolute. Got: {path}",
+        }
+    resolved = p.expanduser().resolve()
+    base_dir = os.getenv(
+        "CRAWL4AI_OUTPUT_BASE_DIR",
+        str(Path.home() / ".crawl4ai" / "output")
+    )
+    base = Path(base_dir).expanduser().resolve()
+    if not str(resolved).startswith(str(base) + os.sep):
+        return {
+            "success": False,
+            "error_code": "output_path_not_allowed",
+            "error": f"output_path must be under CRAWL4AI_OUTPUT_BASE_DIR ({base}). Got: {path}",
         }
     if p.exists() and p.is_file() and not overwrite:
         return {
