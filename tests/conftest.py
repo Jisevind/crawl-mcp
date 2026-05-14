@@ -9,6 +9,7 @@ This module provides:
 """
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 from typing import AsyncGenerator, Dict, Any, Optional
@@ -35,6 +36,35 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "search: search tools")
     config.addinivalue_line("markers", "file: file processing tools")
     config.addinivalue_line("markers", "utility: utility tools")
+
+
+def pytest_addoption(parser):
+    """Add opt-in flags for tests that need live external systems."""
+    parser.addoption(
+        "--run-mcp",
+        action="store_true",
+        default=False,
+        help="Run live MCP/browser/network integration tests.",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip live MCP tests unless explicitly requested."""
+    run_mcp = config.getoption("--run-mcp") or os.getenv("CRAWL4AI_RUN_MCP_TESTS") in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if run_mcp:
+        return
+
+    skip_mcp = pytest.mark.skip(
+        reason="MCP/browser/network integration tests are opt-in; use --run-mcp or CRAWL4AI_RUN_MCP_TESTS=1"
+    )
+    for item in items:
+        if "mcp" in item.keywords:
+            item.add_marker(skip_mcp)
 
 
 @pytest.fixture(scope="session")
