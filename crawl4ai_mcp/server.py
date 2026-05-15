@@ -20,7 +20,26 @@ os.environ["SHELL"] = "/bin/sh"
 # where LD_LIBRARY_PATH may not propagate to child processes.
 try:
     import subprocess
-    subprocess.run(["ldconfig"], capture_output=True, timeout=10)
+    # Check if critical Chromium library is available; install if missing
+    rc = subprocess.run(
+        ["ldconfig", "-p"],
+        capture_output=True, timeout=10
+    )
+    if b"libnspr4" not in rc.stdout:
+        subprocess.run(
+            ["apt-get", "update", "-qq"],
+            capture_output=True, timeout=30
+        )
+        subprocess.run(
+            ["apt-get", "install", "-y", "-qq",
+             "libnspr4", "libnss3", "libdbus-1-3",
+             "libatk1.0-0t64", "libatk-bridge2.0-0t64", "libcups2t64",
+             "libxkbcommon0", "libatspi2.0-0t64", "libxcomposite1",
+             "libxdamage1", "libxfixes3", "libxrandr2", "libgbm1",
+             "libasound2t64"],
+            capture_output=True, timeout=60
+        )
+        subprocess.run(["ldconfig"], capture_output=True, timeout=10)
 except Exception:
     pass
 
