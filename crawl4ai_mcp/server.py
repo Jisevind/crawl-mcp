@@ -19,26 +19,47 @@ os.environ["SHELL"] = "/bin/sh"
 # (libnspr4, libnss3, libdbus-1-3, etc.) inside Docker/uvx environments.
 # Docker containers often have packages registered in dpkg but the
 # actual .so files missing — reinstall ensures the files are on disk.
+# This runs as a best-effort init with retries; failures are printed to
+# stderr (visible in mcp-stderr.log) so users can debug their environment.
 try:
     import subprocess
+    import time
 
-    def _ensure_chromium_libs():
-        # First try ldconfig — fast and harmless if cache already exists
-        subprocess.run(["ldconfig"], capture_output=True, timeout=10)
+    def _log(msg: str) -> None:
+        """Emit a startup log line that shows up in the MCP stderr log."""
+        print(f"[crawl4ai-mcp] {msg}", file=sys.stderr, flush=True)
 
-        # Check if chrome actually works
-        check = subprocess.run(
+    def _run(cmd: list, timeout: int = 60) -> subprocess.CompletedProcess:
+        """Run a command, capture output, and log failures to stderr."""
+        r = subprocess.run(cmd, capture_output=True, timeout=timeout)
+        if r.returncode != 0:
+            out = (r.stderr or b"").decode().strip()[:300]
+            if out:
+                _log(f"  cmd {' '.join(cmd[:3])}… rc={r.returncode}: {out}")
+        return r
+
+    def _ensure_chromium_libs() -> None:
+        # 1. Rebuild ldconfig cache (fast, 1ms, harmless if cache exists)
+        _run(["ldconfig"], timeout=10)
+
+        # 2. Check if chrome binary actually works
+        check = _run(
             ["/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome",
              "--version"],
-            capture_output=True, timeout=10
+            timeout=10,
         )
-        if check.returncode != 0:
-            # Libs missing — reinstall them
-            subprocess.run(
-                ["apt-get", "update", "-qq"],
-                capture_output=True, timeout=60
-            )
-            # Install in small batches to avoid pulling systemd deps
+        if check.returncode == 0:
+            _log("chrome ok, skipping lib install")
+        else:
+            _log("chrome missing shared libs, installing…")
+
+            # 3. Update apt cache (retry once with full output if -qq fails)
+            up = _run(["apt-get", "update", "-qq"], timeout=90)
+            if up.returncode != 0:
+                _log("apt-get update -qq failed, retrying without -qq…")
+                _run(["apt-get", "update"], timeout=120)
+
+            # 4. Install libs in small batches (avoids pulling systemd)
             _batches = [
                 ["libnspr4", "libnss3", "libdbus-1-3"],
                 ["libatk1.0-0t64", "libatk-bridge2.0-0t64", "libatspi2.0-0t64"],
@@ -46,29 +67,33 @@ try:
                 ["libxrandr2", "libgbm1", "libasound2t64", "libcups2t64"],
             ]
             for batch in _batches:
-                subprocess.run(
+                _run(
                     ["apt-get", "install", "--reinstall", "-y", "-qq",
                      "--no-install-recommends"] + batch,
-                    capture_output=True, timeout=60
+                    timeout=90,
                 )
-            subprocess.run(["ldconfig"], capture_output=True, timeout=10)
 
-        # Register browser with Playwright's Node.js driver
-        # (updates .links registry for "Executable doesn't exist" errors)
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "playwright", "install", "chromium"],
-                capture_output=True, timeout=60
+            # 5. Rebuild ldconfig again so chrome finds the newly installed libs
+            _run(["ldconfig"], timeout=10)
+
+            # 6. Verify
+            v = _run(
+                ["/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome",
+                 "--version"],
+                timeout=10,
             )
-        except Exception:
-            pass
+            if v.returncode == 0:
+                _log("libs installed, chrome ok")
+            else:
+                _log("libs may still be incomplete — see errors above")
 
-        # Verify fix
-        subprocess.run(
-            ["/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome",
-             "--version"],
-            capture_output=True, timeout=10
-        )
+        # 7. Register browser with Playwright's Node.js driver so the
+        #    "Executable doesn't exist at …/chrome" error goes away.
+        _log("registering browser with playwright driver…")
+        pw = _run([sys.executable, "-m", "playwright", "install", "chromium"],
+                  timeout=60)
+        if pw.returncode != 0:
+            _log("playwright install exited non-zero — see previous line")
 
     _ensure_chromium_libs()
 except Exception:
