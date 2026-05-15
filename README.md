@@ -3,15 +3,16 @@
 > **⚠️ Important**: This is an **unofficial** MCP server implementation for the excellent [crawl4ai](https://github.com/unclecode/crawl4ai) library.  
 > **Not affiliated** with the original crawl4ai project.
 
-A comprehensive Model Context Protocol (MCP) server that wraps the powerful crawl4ai library with advanced AI capabilities. Extract and analyze content from **any source**: web pages, PDFs, Office documents, YouTube videos, and more. Features intelligent summarization to dramatically reduce token usage while preserving key information.
+A comprehensive Model Context Protocol (MCP) server that wraps the powerful crawl4ai library with advanced AI capabilities. Extract and analyze content from web pages, remote files, YouTube videos, and optionally trusted local files. Features intelligent summarization and disk persistence to dramatically reduce token usage while preserving key information.
 
 ## 🌟 Key Features
 
 - **🔍 Google Search Integration** - 7 optimized search genres with Google official operators
 - **🔍 Advanced Web Crawling**: JavaScript support, deep site mapping, entity extraction
-- **🌐 Universal Content Extraction**: Web pages, PDFs, Word docs, Excel, PowerPoint, ZIP archives
+- **🌐 Universal Content Extraction**: Web pages, PDFs, Word docs, Excel, PowerPoint, ZIP archives, and gated local file input
 - **🤖 AI-Powered Summarization**: Smart token reduction (up to 88.5%) while preserving essential information
 - **🎬 YouTube Integration**: Extract video transcripts and summaries without API keys  
+- **💾 Disk Persistence**: Save large crawl, file, search, and YouTube results under a configured output directory
 - **⚡ Production Ready**: 19 specialized tools with comprehensive error handling
 
 ## 🚀 Quick Start
@@ -38,12 +39,17 @@ sudo playwright install-deps
 
 **Other Linux/macOS:**
 ```bash
-sudo bash scripts/prepare_for_uvx_playwright.sh
+# Install Playwright's Chromium browser and system dependencies.
+# Linux may require sudo for install-deps.
+python -m pip install --user playwright==1.55.0
+python -m playwright install chromium
+python -m playwright install-deps chromium
 ```
 
 **Windows (as Administrator):**
 ```powershell
-scripts/prepare_for_uvx_playwright.ps1
+python -m pip install --user playwright==1.55.0
+python -m playwright install chromium
 ```
 
 ### Installation
@@ -76,7 +82,6 @@ docker run --rm -i --no-healthcheck crawl4ai-mcp
 
 **Docker Features:**
 - 🔧 **Multi-Browser Support**: Chromium, Firefox, Webkit headless browsers
-- 🐧 **Google Chrome**: Additional Chrome Stable for compatibility
 - ⚡ **Optimized Performance**: Pre-configured browser flags for Docker
 - 🔒 **Security**: Non-root user execution
 - 📦 **Complete Dependencies**: All required libraries included
@@ -111,11 +116,13 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "crawl-mcp": {
       "transport": "http",
-      "baseUrl": "http://localhost:8000"
+      "baseUrl": "http://localhost:8001"
     }
   }
 }
 ```
+
+`docker-compose.yml` maps host port `8001` to container port `8000`. If you run `python -m crawl4ai_mcp.server --transport http` directly, the default host URL is `http://127.0.0.1:8000`.
 
 **Docker STDIO Mode:**
 Build the image first with `docker compose --profile stdio build crawl4ai-mcp`, then add:
@@ -202,6 +209,7 @@ Build the image first with `docker compose --profile stdio build crawl4ai-mcp`, 
 All information-gathering tools accept an optional `output_path` parameter that writes the full fetched content straight to disk and returns a slim metadata-only response. This lets an LLM fetch huge pages, long YouTube transcripts, or whole batches without blowing its context budget — read from the saved file only when needed.
 
 **How it works:**
+- `output_path` must be absolute and must resolve under `CRAWL4AI_OUTPUT_BASE_DIR`, which defaults to `~/.crawl4ai/output`. Set `CRAWL4AI_OUTPUT_BASE_DIR` in the MCP server environment if you want a different output root.
 - Single-file tools (e.g. `crawl_url`, `extract_youtube_transcript`) write one `.md` (or `.json` for JSON-kind tools) — pass an absolute file path; the extension is auto-added if omitted. An existing regular file at that path is rejected unless `overwrite=true`.
 - Batch tools (`batch_crawl`, `multi_url_crawl`, `deep_crawl_site`, `search_and_crawl`, `batch_extract_youtube_transcripts`) expect an absolute **directory** path and write one `.md` per URL plus `index.json`. Any non-existent path is treated as a directory and created — including names containing dots such as `/tmp/run.v1`. If the path already exists as a regular file, the call is rejected. `batch_crawl` / `multi_url_crawl` keep their `list` return shape and embed an `output_file` key on each success item.
 - Request-dict tools (`search_google`, `batch_search_google`, `search_and_crawl`, `batch_extract_youtube_transcripts`) read the persistence keys directly from their request dict.
@@ -215,7 +223,7 @@ All information-gathering tools accept an optional `output_path` parameter that 
   "tool": "crawl_url",
   "arguments": {
     "url": "https://example.com/long-article",
-    "output_path": "/tmp/crawl_out/article.md"
+    "output_path": "/home/me/.crawl4ai/output/article.md"
   }
 }
 ```
@@ -228,7 +236,7 @@ All information-gathering tools accept an optional `output_path` parameter that 
     "url": "https://example.com/products",
     "extraction_type": "css",
     "css_selectors": {"price": ".price", "name": "h1"},
-    "output_path": "/tmp/crawl_out/products"
+    "output_path": "/home/me/.crawl4ai/output/products"
   }
 }
 ```
@@ -239,12 +247,23 @@ All information-gathering tools accept an optional `output_path` parameter that 
   "tool": "batch_crawl",
   "arguments": {
     "urls": ["https://a.example", "https://b.example"],
-    "output_path": "/tmp/crawl_out/batch_run1"
+    "output_path": "/home/me/.crawl4ai/output/batch_run1"
   }
 }
 ```
 
 Each persisted markdown file begins with a YAML frontmatter block containing `url`, `title`, `fetched_at`, and `source_tool` so the artifact is self-describing.
+
+## 🔐 Local File Input
+
+`process_file` accepts `http://`, `https://`, `file://`, and absolute local paths. Local file input is disabled by default. To enable it for trusted MCP clients, set:
+
+```bash
+CRAWL4AI_ALLOW_LOCAL_FILES=true
+CRAWL4AI_INPUT_BASE_DIR=/absolute/path/to/allowed/input
+```
+
+When enabled, every local file path must resolve under `CRAWL4AI_INPUT_BASE_DIR`, which defaults to `~/.crawl4ai/input`.
 
 ## 🎯 Common Use Cases
 
@@ -283,6 +302,8 @@ batch_crawl → multi_url_crawl → comprehensive data
 **Configuration Issues:**
 - Check JSON syntax in `claude_desktop_config.json`
 - Verify file paths are absolute
+- For `output_path`, verify the path is under `CRAWL4AI_OUTPUT_BASE_DIR`
+- For local files, set `CRAWL4AI_ALLOW_LOCAL_FILES=true` and keep files under `CRAWL4AI_INPUT_BASE_DIR`
 - Restart Claude Desktop after configuration changes
 
 ## 🏗️ Project Structure
