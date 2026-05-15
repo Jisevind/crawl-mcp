@@ -15,6 +15,15 @@ os.environ["PYTHONWARNINGS"] = "ignore"
 os.environ["TERM"] = "dumb"
 os.environ["SHELL"] = "/bin/sh"
 
+# Rebuild shared library cache so Chromium can find its dependencies
+# (libnspr4, libnss3, libdbus-1-3, etc.) inside Docker/uvx environments
+# where LD_LIBRARY_PATH may not propagate to child processes.
+try:
+    import subprocess
+    subprocess.run(["ldconfig"], capture_output=True, timeout=10)
+except Exception:
+    pass
+
 warnings.filterwarnings("ignore")
 warnings.simplefilter("ignore")
 
