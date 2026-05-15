@@ -199,6 +199,10 @@ def _build_browser_config(request: CrawlRequest) -> dict:
         "browser_type": "webkit"
     }
 
+    extra_args_raw = os.getenv("CRAWL4AI_EXTRA_ARGS", "")
+    if extra_args_raw:
+        browser_config["extra_args"] = [a.strip() for a in extra_args_raw.split(",") if a.strip()]
+
     if request.use_undetected_browser:
         browser_config["enable_stealth"] = True
         browser_config["browser_type"] = "chromium"
