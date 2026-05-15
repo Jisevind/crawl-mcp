@@ -16,31 +16,47 @@ os.environ["TERM"] = "dumb"
 os.environ["SHELL"] = "/bin/sh"
 
 # Rebuild shared library cache so Chromium can find its dependencies
-# (libnspr4, libnss3, libdbus-1-3, etc.) inside Docker/uvx environments
-# where LD_LIBRARY_PATH may not propagate to child processes.
+# (libnspr4, libnss3, libdbus-1-3, etc.) inside Docker/uvx environments.
+# Docker containers often have packages registered in dpkg but the
+# actual .so files missing — reinstall ensures the files are on disk.
 try:
     import subprocess
-    # Check if critical Chromium library is available; install if missing
-    rc = subprocess.run(
-        ["ldconfig", "-p"],
-        capture_output=True, timeout=10
-    )
-    if b"libnspr4" not in rc.stdout:
-        # Install just the critical libs first (small packages, fast)
-        subprocess.run(
-            ["apt-get", "update", "-qq"],
-            capture_output=True, timeout=60
-        )
-        subprocess.run(
-            ["apt-get", "install", "-y", "-qq", "--no-install-recommends",
-             "libnspr4", "libnss3", "libdbus-1-3",
-             "libatk1.0-0t64", "libatk-bridge2.0-0t64", "libcups2t64",
-             "libxkbcommon0", "libatspi2.0-0t64", "libxcomposite1",
-             "libxdamage1", "libxfixes3", "libxrandr2", "libgbm1",
-             "libasound2t64"],
-            capture_output=True, timeout=120
-        )
+
+    def _ensure_chromium_libs():
+        # First try ldconfig — fast and harmless if cache already exists
         subprocess.run(["ldconfig"], capture_output=True, timeout=10)
+
+        # Check if chrome actually works
+        check = subprocess.run(
+            ["/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome",
+             "--version"],
+            capture_output=True, timeout=10
+        )
+        if check.returncode != 0:
+            # Libs missing — reinstall them
+            subprocess.run(
+                ["apt-get", "update", "-qq"],
+                capture_output=True, timeout=60
+            )
+            subprocess.run(
+                ["apt-get", "install", "--reinstall", "-y", "-qq",
+                 "--no-install-recommends",
+                 "libnspr4", "libnss3", "libdbus-1-3",
+                 "libatk1.0-0t64", "libatk-bridge2.0-0t64", "libcups2t64",
+                 "libxkbcommon0", "libatspi2.0-0t64", "libxcomposite1",
+                 "libxdamage1", "libxfixes3", "libxrandr2", "libgbm1",
+                 "libasound2t64"],
+                capture_output=True, timeout=120
+            )
+            subprocess.run(["ldconfig"], capture_output=True, timeout=10)
+            # Verify fix
+            subprocess.run(
+                ["/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome",
+                 "--version"],
+                capture_output=True, timeout=10
+            )
+
+    _ensure_chromium_libs()
 except Exception:
     pass
 
