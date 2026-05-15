@@ -39,8 +39,15 @@ try:
         return r
 
     def _ensure_chromium_libs() -> None:
-        # 1. Rebuild ldconfig cache (fast, 1ms, harmless if cache exists)
-        _run(["ldconfig"], timeout=10)
+        # 1. Try ldconfig — if this fails (e.g. in Hermes MCP sandbox
+        #    where /etc is not writable), skip the whole auto-install.
+        ldr = _run(["ldconfig"], timeout=10)
+        if ldr.returncode != 0:
+            _log("/etc not writable — cannot auto-install libs")
+            _log("build a custom Docker image with the libs pre-installed:")
+            _log("  docker build -t hermes-crawl4ai -f Dockerfile.hermes /workspace/crawl-mcp")
+            _log("  # then set terminal.docker_image: hermes-crawl4ai in config.yaml")
+            return
 
         # 2. Check if chrome binary actually works
         check = _run(
