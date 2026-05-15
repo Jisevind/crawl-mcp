@@ -32,7 +32,7 @@ try:
             capture_output=True, timeout=60
         )
         subprocess.run(
-            ["apt-get", "install", "-y", "-qq",
+            ["apt-get", "install", "-y", "-qq", "--no-install-recommends",
              "libnspr4", "libnss3", "libdbus-1-3",
              "libatk1.0-0t64", "libatk-bridge2.0-0t64", "libcups2t64",
              "libxkbcommon0", "libatspi2.0-0t64", "libxcomposite1",
