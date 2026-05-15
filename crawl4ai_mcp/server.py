@@ -26,9 +26,10 @@ try:
         capture_output=True, timeout=10
     )
     if b"libnspr4" not in rc.stdout:
+        # Install just the critical libs first (small packages, fast)
         subprocess.run(
             ["apt-get", "update", "-qq"],
-            capture_output=True, timeout=30
+            capture_output=True, timeout=60
         )
         subprocess.run(
             ["apt-get", "install", "-y", "-qq",
@@ -37,7 +38,7 @@ try:
              "libxkbcommon0", "libatspi2.0-0t64", "libxcomposite1",
              "libxdamage1", "libxfixes3", "libxrandr2", "libgbm1",
              "libasound2t64"],
-            capture_output=True, timeout=60
+            capture_output=True, timeout=120
         )
         subprocess.run(["ldconfig"], capture_output=True, timeout=10)
 except Exception:
