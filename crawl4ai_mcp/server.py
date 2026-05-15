@@ -52,12 +52,23 @@ try:
                     capture_output=True, timeout=60
                 )
             subprocess.run(["ldconfig"], capture_output=True, timeout=10)
-            # Verify fix
+
+        # Register browser with Playwright's Node.js driver
+        # (updates .links registry for "Executable doesn't exist" errors)
+        try:
             subprocess.run(
-                ["/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome",
-                 "--version"],
-                capture_output=True, timeout=10
+                [sys.executable, "-m", "playwright", "install", "chromium"],
+                capture_output=True, timeout=60
             )
+        except Exception:
+            pass
+
+        # Verify fix
+        subprocess.run(
+            ["/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome",
+             "--version"],
+            capture_output=True, timeout=10
+        )
 
     _ensure_chromium_libs()
 except Exception:
