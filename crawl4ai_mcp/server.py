@@ -38,16 +38,19 @@ try:
                 ["apt-get", "update", "-qq"],
                 capture_output=True, timeout=60
             )
-            subprocess.run(
-                ["apt-get", "install", "--reinstall", "-y", "-qq",
-                 "--no-install-recommends",
-                 "libnspr4", "libnss3", "libdbus-1-3",
-                 "libatk1.0-0t64", "libatk-bridge2.0-0t64", "libcups2t64",
-                 "libxkbcommon0", "libatspi2.0-0t64", "libxcomposite1",
-                 "libxdamage1", "libxfixes3", "libxrandr2", "libgbm1",
-                 "libasound2t64"],
-                capture_output=True, timeout=120
-            )
+            # Install in small batches to avoid pulling systemd deps
+            _batches = [
+                ["libnspr4", "libnss3", "libdbus-1-3"],
+                ["libatk1.0-0t64", "libatk-bridge2.0-0t64", "libatspi2.0-0t64"],
+                ["libxkbcommon0", "libxcomposite1", "libxdamage1", "libxfixes3"],
+                ["libxrandr2", "libgbm1", "libasound2t64", "libcups2t64"],
+            ]
+            for batch in _batches:
+                subprocess.run(
+                    ["apt-get", "install", "--reinstall", "-y", "-qq",
+                     "--no-install-recommends"] + batch,
+                    capture_output=True, timeout=60
+                )
             subprocess.run(["ldconfig"], capture_output=True, timeout=10)
             # Verify fix
             subprocess.run(
