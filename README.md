@@ -1,5 +1,11 @@
 # Crawl-MCP: Unofficial MCP Server for crawl4ai
 
+> **🔱 This is a fork** of [walksoda/crawl-mcp](https://github.com/walksoda/crawl-mcp) maintained at [Jisevind/crawl-mcp](https://github.com/Jisevind/crawl-mcp).
+>
+> **What's different:** All hardcoded constants (token limits, timeouts, chunk sizes, file size caps, LLM defaults) now read from `CRAWL4AI_*` environment variables with sensible defaults. Set what you need — everything else falls back to upstream behavior. See [constants.py](crawl4ai_mcp/constants.py) for the full list of 16 configurable env vars.
+>
+> **Synced with upstream** — this fork is regularly merged/rebased to track new upstream releases.
+
 > **⚠️ Important**: This is an **unofficial** MCP server implementation for the excellent [crawl4ai](https://github.com/unclecode/crawl4ai) library.  
 > **Not affiliated** with the original crawl4ai project.
 
