@@ -11,6 +11,7 @@ A comprehensive Model Context Protocol (MCP) server that wraps the powerful craw
 - **🔍 Advanced Web Crawling**: JavaScript support, deep site mapping, entity extraction
 - **🌐 Universal Content Extraction**: Web pages, PDFs, Word docs, Excel, PowerPoint, ZIP archives, and gated local file input
 - **🤖 AI-Powered Summarization**: Smart token reduction (up to 88.5%) while preserving essential information
+- **💾 Disk Persistence (token-saver)**: Save full results to disk and return slim metadata, so agents read them from a file on demand without spending context
 - **🎬 YouTube Integration**: Extract video transcripts and summaries without API keys  
 - **💾 Disk Persistence**: Save large crawl, file, search, and YouTube results under a configured output directory
 - **⚡ Production Ready**: 19 specialized tools with comprehensive error handling
@@ -19,7 +20,7 @@ A comprehensive Model Context Protocol (MCP) server that wraps the powerful craw
 
 ### Prerequisites (Required First)
 
-- Python 3.11 以上（FastMCP が Python 3.11+ を要求）
+- Python 3.11 or later (FastMCP requires Python 3.11+)
 
 **Install system dependencies for Playwright:**
 

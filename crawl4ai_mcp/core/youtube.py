@@ -12,7 +12,7 @@ from ..models import (
 )
 
 from ..processors.youtube_processor import YouTubeProcessor
-from .youtube_helpers import _crawl_youtube_page_fallback
+from .youtube_helpers import _crawl_youtube_page_fallback, convert_timestamp_to_timezone
 
 # Initialize YouTube processor
 youtube_processor = YouTubeProcessor()
@@ -32,9 +32,14 @@ async def extract_youtube_transcript(
     llm_model: Optional[str] = None,
     enable_crawl_fallback: bool = True,
     fallback_timeout: int = 60,
-    enrich_metadata: bool = True
+    enrich_metadata: bool = True,
+    timezone: str = "UTC"
 ) -> Dict[str, Any]:
     """Extract YouTube video transcripts with timestamps and optional AI summarization.
+
+    When metadata enrichment succeeds, the video's publish timestamp is converted
+    to ``timezone`` (any IANA name, e.g. "Asia/Tokyo"; defaults to "UTC") and stored
+    under ``metadata.published_at``.
 
     Returns a dict with content/markdown/extracted_data format (CrawlResponse-compatible).
     """
@@ -136,10 +141,16 @@ async def extract_youtube_transcript(
 
                 if enrichment_result['success']:
                     enriched_metadata = enrichment_result.get('metadata', {})
-                    enrichment_fields = ['title', 'upload_date', 'view_count', 'duration', 'like_count', 'channel_name']
+                    enrichment_fields = ['title', 'upload_date', 'published_at', 'view_count', 'duration', 'like_count', 'channel_name']
                     for field in enrichment_fields:
                         if enriched_metadata.get(field) and not metadata.get(field):
                             metadata[field] = enriched_metadata[field]
+
+                    # Convert the publish timestamp to the requested timezone
+                    if isinstance(metadata.get('published_at'), str):
+                        metadata['published_at'] = convert_timestamp_to_timezone(
+                            metadata['published_at'], timezone
+                        )
 
                     metadata['metadata_enriched'] = True
                     metadata['enrichment_source'] = 'page_crawl'
@@ -269,6 +280,7 @@ async def batch_extract_youtube_transcripts(
         translate_to = request.get('translate_to')
         preserve_formatting = request.get('preserve_formatting', True)
         include_metadata = request.get('include_metadata', True)
+        timezone = request.get('timezone', 'UTC')
 
         if not urls:
             return YouTubeBatchResponse(
@@ -296,7 +308,8 @@ async def batch_extract_youtube_transcripts(
                     translate_to=translate_to,
                     include_timestamps=include_timestamps,
                     preserve_formatting=preserve_formatting,
-                    include_metadata=include_metadata
+                    include_metadata=include_metadata,
+                    timezone=timezone
                 )
 
         # Process all URLs concurrently
@@ -354,13 +367,17 @@ async def get_youtube_video_info(
     llm_provider: Optional[str] = None,
     llm_model: Optional[str] = None,
     summary_length: str = "medium",
-    include_timestamps: bool = True
+    include_timestamps: bool = True,
+    timezone: str = "UTC"
 ) -> Dict[str, Any]:
     """
     Get YouTube video information with optional transcript summarization.
 
     Retrieves basic video information and transcript availability using youtube-transcript-api.
     No authentication required for public videos.
+
+    The video's publish timestamp is converted to ``timezone`` (any IANA name,
+    e.g. "Asia/Tokyo"; defaults to "UTC") and returned under ``published_at``.
 
     Note: Automatic transcription may contain errors.
     """
@@ -398,6 +415,11 @@ async def get_youtube_video_info(
             pass
 
         title = metadata.get('title') or f"YouTube: {video_id}"
+
+        # Convert the publish timestamp to the requested timezone
+        published_at = convert_timestamp_to_timezone(
+            metadata.get('published_at'), timezone
+        )
 
         # Try to get transcript information
         transcript_info = {}
@@ -448,6 +470,7 @@ async def get_youtube_video_info(
             "title": title,
             "video_info": video_info,
             "metadata": metadata,
+            "published_at": published_at,
             "transcript_info": transcript_info,
             "processing_method": "youtube_video_info_api"
         }

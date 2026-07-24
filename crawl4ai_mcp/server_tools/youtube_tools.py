@@ -36,6 +36,7 @@ def register_youtube_tools(mcp, get_modules):
         enable_crawl_fallback: Annotated[bool, Field(description="Enable page crawl fallback when API fails")] = True,
         fallback_timeout: Annotated[int, Field(description="Fallback crawl timeout in seconds")] = 60,
         enrich_metadata: Annotated[bool, Field(description="Enrich metadata (upload_date, view_count) via page crawl")] = True,
+        timezone: Annotated[str, Field(description="IANA timezone name (e.g. 'Asia/Tokyo', 'America/New_York') used to convert the video's publish time, returned under metadata.published_at (requires enrich_metadata=True). When unspecified, defaults to 'UTC' (the original YouTube offset is always kept in metadata.published_at.original).")] = "UTC",
         content_offset: Annotated[int, Field(description="Start position for content (0-indexed)")] = 0,
         content_limit: Annotated[int, Field(description="Max characters to return (0=unlimited)")] = 0,
         output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .md extension) to persist the full unsliced transcript. When set, the response is slimmed to metadata+file path. content_limit/content_offset still affect the response copy but not the on-disk file.")] = None,
@@ -79,7 +80,7 @@ def register_youtube_tools(mcp, get_modules):
                 max_content_tokens=max_content_tokens, summary_length=summary_length,
                 llm_provider=llm_provider, llm_model=llm_model,
                 enable_crawl_fallback=enable_crawl_fallback, fallback_timeout=fallback_timeout,
-                enrich_metadata=enrich_metadata
+                enrich_metadata=enrich_metadata, timezone=timezone
             )
 
             # Guard B: persist BEFORE slicing/truncation so disk holds full transcript.
@@ -123,7 +124,7 @@ def register_youtube_tools(mcp, get_modules):
 
     @mcp.tool(annotations=OPEN_WORLD_ANNOTATIONS)
     async def batch_extract_youtube_transcripts(
-        request: Annotated[Dict[str, Any], Field(description="Dict with: urls (max 3), languages, include_timestamps. Optional persistence keys: output_path (absolute directory — per-video .md files + index.json; dot-containing dir names are fine), include_content_in_response (bool; default False — when True, per-video transcripts stay in the response as well), overwrite (bool; default False — existing files rejected). Failed items (success=False) are recorded in index.json with file=null but no .md is written.")]
+        request: Annotated[Dict[str, Any], Field(description="Dict with: urls (max 3), languages, include_timestamps, timezone (IANA name e.g. 'Asia/Tokyo' for converting each video's publish time under metadata.published_at; defaults to 'UTC'). Optional persistence keys: output_path (absolute directory — per-video .md files + index.json; dot-containing dir names are fine), include_content_in_response (bool; default False — when True, per-video transcripts stay in the response as well), overwrite (bool; default False — existing files rejected). Failed items (success=False) are recorded in index.json with file=null but no .md is written.")]
     ) -> Dict[str, Any]:
         """Extract transcripts from multiple YouTube videos. Max 3 URLs per call. Supply output_path (directory) in the request to persist per-video markdown files + index.json and receive a slim response."""
         # URL limit check (MCP best practice: bounded toolsets)
@@ -185,6 +186,7 @@ def register_youtube_tools(mcp, get_modules):
         llm_model: Annotated[Optional[str], Field(description="LLM model")] = None,
         summary_length: Annotated[str, Field(description="'short'|'medium'|'long'")] = "medium",
         include_timestamps: Annotated[bool, Field(description="Include timestamps")] = True,
+        timezone: Annotated[str, Field(description="IANA timezone name (e.g. 'Asia/Tokyo', 'America/New_York') used to convert the video's publish time, returned under 'published_at'. When unspecified, defaults to 'UTC' (the original YouTube offset is always kept in published_at.original).")] = "UTC",
         output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .md extension) to persist the full video info + transcript as markdown. When set, the response is slimmed to metadata+file path.")] = None,
         include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), also include the full transcript in the response. Defaults to False.")] = False,
         overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False.")] = False,
@@ -204,7 +206,8 @@ def register_youtube_tools(mcp, get_modules):
             result = await youtube.get_youtube_video_info(
                 video_url=video_url, summarize_transcript=summarize_transcript,
                 max_tokens=max_tokens, llm_provider=llm_provider, llm_model=llm_model,
-                summary_length=summary_length, include_timestamps=include_timestamps
+                summary_length=summary_length, include_timestamps=include_timestamps,
+                timezone=timezone
             )
 
             # Guard B: persist BEFORE apply_token_limit.
